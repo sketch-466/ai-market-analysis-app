@@ -1,17 +1,46 @@
+"use client";
+import {useState}from "react";
+
 type MarketCardProps = {
   pair : string;
   description : string;
 };
 
-function MarketCard({pair, description } : MarketCardProps) {
+
+function MarketCard({ pair, description }: MarketCardProps) {
+  const [expanded, setExpanded] = useState(false);
+
   return (
-    <div className ="rounded-x1 border border-zinc-800 bg-zinc-900 p-5">
-      <h2 className = "text-lg font-semibold text-white"> {pair}</h2>
-      <p className =" mt-2 text-sm text-zinc-400">{pair}</p>
-      
+    <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="w-full text-left"
+      >
+        <h2 className="text-lg font-semibold text-white">
+          {pair}
+        </h2>
+
+        <p className="mt-2 text-sm text-zinc-400">
+          {description}
+        </p>
+
+        <p className="mt-3 text-xs text-emerald-400">
+          {expanded ? "Hide details ▲" : "View details ▼"}
+        </p>
+      </button>
+
+      {expanded && (
+        <div className="mt-4 border-t border-zinc-700 pt-4">
+          <p className="text-sm text-zinc-300">
+            This is a sample information panel for {pair}.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
+
 
 export default function Home(){
   return(
