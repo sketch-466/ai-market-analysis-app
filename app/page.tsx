@@ -6,6 +6,23 @@ type MarketCardProps = {
   description : string;
 };
 
+const markets = [
+  {
+    pair :"EUR/USD",
+  description: "EURO/US DOLLAR . sample data"},
+  { 
+    pair : "GBP/USD",
+    description: "BRITISH POUNDS/US DOLLAR . sample data"
+  },
+  {
+    pair :"USD/JPY",
+    description: "US DOLLAR/ JAPANESE YEN . sample data"
+  },
+  {
+    pair: "AUD/USD",
+    description: "AUSTRALIAN DOLLAR/US DOLLAR . sample data"
+  },
+]
 
 function MarketCard({ pair, description }: MarketCardProps) {
   const [expanded, setExpanded] = useState(false);
@@ -52,15 +69,10 @@ export default function Home(){
       </header>
       
       <section className ="mx-auto mt-8 mx-w-4xl gap-4 sm:grid-cols-2">
-        <MarketCard 
-        pair ="EUR/USD"
-        description="EURO/US DOLLAR . sample data"/>
-        <MarketCard
-        pair ="GPB/USD"
-        description ="BRITISH POUNDS/US DOLLAR . sample data"/>
-        <MarketCard
-        pair ="AUD/USD"
-        description ="AUSTRALIAN DOLLAR/US DOLLAR . sample data"/>
+        {markets.map((market)=> (<MarketCard
+        key={market.pair}
+        pair={market.pair}
+        description={market.description}/>)) }
       </section>
     </main>
   )
