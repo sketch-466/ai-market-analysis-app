@@ -1,81 +1,576 @@
 "use client";
-import {useState}from "react";
 
-type MarketCardProps = {
-  pair : string;
-  description : string;
-};
+import { useRef, useState } from "react";
+import {
+  Activity,
+  ArrowUpRight,
+  BarChart3,
+  Clock3,
+  FileImage,
+  History,
+  LayoutDashboard,
+  Loader2,
+  Settings,
+  ShieldCheck,
+  Sparkles,
+  Upload,
+  X,
+} from "lucide-react";
 
-const markets = [
+// The instruments and timeframes available in our analysis workspace.
+const instruments = [
+  "EUR/USD",
+  "GBP/USD",
+  "USD/JPY",
+  "AUD/USD",
+  "NZD/USD",
+  "XAU/USD",
+];
+
+const timeframes = [
+  "1m",
+  "5m",
+  "15m",
+  "30m",
+  "1H",
+  "4H",
+  "1D",
+  "1W",
+];
+
+// Navigation items displayed in the sidebar.
+const navigation = [
+  { label: "Dashboard", icon: LayoutDashboard },
+  { label: "New Analysis", icon: BarChart3 },
+  { label: "History", icon: History },
+  { label: "Settings", icon: Settings },
+];
+
+// Information about a previous analysis.
+// These are placeholders until we connect a real database.
+const recentAnalyses = [
   {
-    pair :"EUR/USD",
-  description: "EURO/US DOLLAR . sample data"},
-  { 
-    pair : "GBP/USD",
-    description: "BRITISH POUNDS/US DOLLAR . sample data"
+    pair: "EUR/USD",
+    timeframe: "4H",
+    status: "Completed",
+    date: "Example entry",
   },
   {
-    pair :"USD/JPY",
-    description: "US DOLLAR/ JAPANESE YEN . sample data"
+    pair: "GBP/USD",
+    timeframe: "1H",
+    status: "Completed",
+    date: "Example entry",
   },
-  {
-    pair: "AUD/USD",
-    description: "AUSTRALIAN DOLLAR/US DOLLAR . sample data"
-  },
-]
+];
 
-function MarketCard({ pair, description }: MarketCardProps) {
-  const [expanded, setExpanded] = useState(false);
-
+// Reusable badge for small pieces of interface information.
+function StatusBadge({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        className="w-full text-left"
-      >
-        <h2 className="text-lg font-semibold text-white">
-          {pair}
-        </h2>
-
-        <p className="mt-2 text-sm text-zinc-400">
-          {description}
-        </p>
-
-        <p className="mt-3 text-xs text-emerald-400">
-          {expanded ? "Hide details ▲" : "View details ▼"}
-        </p>
-      </button>
-
-      {expanded && (
-        <div className="mt-4 border-t border-zinc-700 pt-4">
-          <p className="text-sm text-zinc-300">
-            This is a sample information panel for {pair}.
-          </p>
-        </div>
-      )}
-    </div>
+    <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300">
+      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+      {children}
+    </span>
   );
 }
 
+export default function Home() {
+  // Keep track of the selected instrument and timeframe.
+  const [instrument, setInstrument] = useState("EUR/USD");
+  const [timeframe, setTimeframe] = useState("4H");
 
-export default function Home(){
-  return(
-    <main className =" min-h-screen bg-zinc-950 p-6 text-white">
-      <header className = "max-auto max-w-4xl">
-        <p className ="text-sm font-medium text-emerald-400">MARKET ANALYSIS</p>
-        <h1 className ="mt-3 text-3xl font-bold">YOUR DASHBOARD</h1>
-        <p className ="mt-2 text-400">Explore your market watchlist.</p>
-      </header>
-      
-      <section className ="mx-auto mt-8 mx-w-4xl gap-4 sm:grid-cols-2">
-        {markets.map((market)=> (<MarketCard
-        key={market.pair}
-        pair={market.pair}
-        description={market.description}/>)) }
-      </section>
+  // Store the selected chart image and its temporary preview URL.
+  const [chartFile, setChartFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  // Track whether the user has requested an analysis.
+  // The actual AI integration will be implemented separately.
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  // Reference the hidden file input so our custom upload button can open it.
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Accept an image selected by the user.
+  function handleImageSelect(
+    event: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const file = event.target.files?.[0];
+
+    // Do nothing if the user cancels the file picker.
+    if (!file) return;
+
+    // Only accept image files.
+    if (!file.type.startsWith("image/")) {
+      alert("Please select a valid image file.");
+      event.target.value = "";
+      return;
+    }
+
+    // Prevent excessively large uploads on mobile connections.
+    if (file.size > 10 * 1024 * 1024) {
+      alert("Please select an image smaller than 10 MB.");
+      event.target.value = "";
+      return;
+    }
+
+    // Release the previous preview URL to avoid wasting memory.
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
+
+    // Save the image and generate a local preview.
+    setChartFile(file);
+    setPreviewUrl(URL.createObjectURL(file));
+  }
+
+  // Remove the selected image and clear the file picker.
+  function removeImage() {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
+
+    setChartFile(null);
+    setPreviewUrl(null);
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
+  // This is a temporary handler. We will replace it with a real
+  // backend request when the AI analysis endpoint is implemented.
+  function handleAnalyze() {
+    if (!chartFile) {
+      alert("Upload a chart image before starting your analysis.");
+      return;
+    }
+
+    alert(
+      "Chart upload is working. AI analysis will be connected in the next development step."
+    );
+  }
+
+  return (
+    <main className="min-h-screen bg-[#080B0A] text-zinc-100">
+      <div className="flex min-h-screen">
+        {/* Sidebar: primary application navigation */}
+        <aside className="hidden w-64 shrink-0 border-r border-white/[0.06] bg-[#0B0F0D] p-5 lg:flex lg:flex-col">
+          <div className="flex items-center gap-3 px-2 py-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-400 text-black">
+              <Activity size={22} />
+            </div>
+
+            <div>
+              <h1 className="text-lg font-bold tracking-tight">
+                FX<span className="text-emerald-400">Lens</span>
+              </h1>
+              <p className="text-xs text-zinc-500">
+                AI Analysis Workspace
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-10">
+            <p className="mb-3 px-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-600">
+              Workspace
+            </p>
+
+            <nav className="space-y-1">
+              {navigation.map((item, index) => {
+                const Icon = item.icon;
+                const active = index === 0;
+
+                return (
+                  <button
+                    key={item.label}
+                    type="button"
+                    className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm transition ${
+                      active
+                        ? "border border-emerald-400/10 bg-emerald-400/10 text-emerald-300"
+                        : "text-zinc-500 hover:bg-white/[0.04] hover:text-zinc-200"
+                    }`}
+                  >
+                    <Icon size={18} />
+                    {item.label}
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
+
+          <div className="mt-auto rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
+            <div className="mb-3 flex items-center gap-2 text-emerald-300">
+              <ShieldCheck size={17} />
+              <span className="text-xs font-semibold">
+                Analysis transparency
+              </span>
+            </div>
+
+            <p className="text-xs leading-5 text-zinc-500">
+              AI observations are estimates, not guarantees. Always verify
+              information against reliable sources.
+            </p>
+          </div>
+        </aside>
+
+        {/* Main workspace */}
+        <div className="min-w-0 flex-1">
+          {/* Top bar */}
+          <header className="flex h-[72px] items-center justify-between border-b border-white/[0.06] px-5 sm:px-8">
+            <div>
+              <p className="text-xs text-zinc-500">
+                Workspace / Dashboard
+              </p>
+              <p className="mt-1 text-sm font-medium text-zinc-200">
+                Market intelligence
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <StatusBadge>Workspace ready</StatusBadge>
+
+              <div className="hidden h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] sm:flex">
+                <Settings size={16} className="text-zinc-400" />
+              </div>
+            </div>
+          </header>
+
+          <div className="mx-auto max-w-7xl p-5 sm:p-8">
+            {/* Dashboard introduction */}
+            <section className="mb-8 flex flex-col justify-between gap-5 md:flex-row md:items-end">
+              <div>
+                <div className="mb-3 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-emerald-400">
+                  <Sparkles size={14} />
+                  AI-powered workspace
+                </div>
+
+                <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+                  Understand the chart.
+                  <br />
+                  <span className="text-zinc-500">
+                    Explore the bigger picture.
+                  </span>
+                </h2>
+
+                <p className="mt-4 max-w-xl text-sm leading-6 text-zinc-400">
+                  Upload a market chart to begin an AI-assisted analysis
+                  of visible price action, potential patterns, and market
+                  structure.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 text-xs text-zinc-500">
+                <ShieldCheck size={15} />
+                <span>Educational analysis · No guaranteed predictions</span>
+              </div>
+            </section>
+
+            {/* Summary cards */}
+            <section className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="rounded-2xl border border-white/[0.07] bg-[#0D1210] p-5">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-zinc-400">
+                    Analysis workspace
+                  </span>
+                  <div className="rounded-lg bg-emerald-400/10 p-2 text-emerald-400">
+                    <BarChart3 size={18} />
+                  </div>
+                </div>
+
+                <p className="mt-5 text-2xl font-semibold">Ready</p>
+                <p className="mt-2 text-xs text-zinc-500">
+                  Upload a chart to get started
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-white/[0.07] bg-[#0D1210] p-5">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-zinc-400">
+                    Saved analyses
+                  </span>
+                  <div className="rounded-lg bg-blue-400/10 p-2 text-blue-300">
+                    <History size={18} />
+                  </div>
+                </div>
+
+                <p className="mt-5 text-2xl font-semibold">0</p>
+                <p className="mt-2 text-xs text-zinc-500">
+                  Your saved reports will appear here
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-white/[0.07] bg-[#0D1210] p-5 sm:col-span-2 xl:col-span-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-zinc-400">
+                    Analysis engine
+                  </span>
+                  <div className="rounded-lg bg-purple-400/10 p-2 text-purple-300">
+                    <Sparkles size={18} />
+                  </div>
+                </div>
+
+                <p className="mt-5 text-2xl font-semibold">
+                  <span className="text-amber-300">Setup pending</span>
+                </p>
+                <p className="mt-2 text-xs text-zinc-500">
+                  AI integration is our next milestone
+                </p>
+              </div>
+            </section>
+
+            {/* Main analysis workspace */}
+            <section
+              id="new-analysis"
+              className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(300px,0.8fr)]"
+            >
+              {/* Chart upload panel */}
+              <div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0D1210]">
+                <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4 sm:px-6">
+                  <div>
+                    <h3 className="font-semibold">New analysis</h3>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Upload a chart screenshot
+                    </p>
+                  </div>
+
+                  <span className="rounded-lg border border-white/[0.08] px-2.5 py-1 text-[10px] text-zinc-500">
+                    IMAGE INPUT
+                  </span>
+                </div>
+
+                <div className="p-5 sm:p-6">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageSelect}
+                    className="hidden"
+                  />
+
+                  {previewUrl ? (
+                    /* Display the selected chart before analysis */
+                    <div className="relative overflow-hidden rounded-xl border border-emerald-400/20 bg-black">
+                      <img
+                        src={previewUrl}
+                        alt="Selected chart preview"
+                        className="max-h-[420px] w-full object-contain"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={removeImage}
+                        aria-label="Remove selected chart"
+                        className="absolute right-3 top-3 rounded-lg border border-white/10 bg-black/80 p-2 text-white hover:bg-black"
+                      >
+                        <X size={17} />
+                      </button>
+
+                      <div className="border-t border-white/[0.08] bg-[#101512] p-3">
+                        <p className="truncate text-sm text-zinc-200">
+                          {chartFile?.name}
+                        </p>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          {chartFile
+                            ? `${(chartFile.size / 1024 / 1024).toFixed(2)} MB`
+                            : ""}
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Upload area shown before a chart is selected */
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="group flex min-h-[280px] w-full flex-col items-center justify-center rounded-xl border border-dashed border-zinc-700 bg-black/20 px-5 py-10 text-center transition hover:border-emerald-400/50 hover:bg-emerald-400/[0.03] sm:min-h-[340px]"
+                    >
+                      <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.07] text-emerald-400 transition group-hover:scale-105">
+                        <Upload size={27} />
+                      </div>
+
+                      <p className="font-medium text-zinc-200">
+                        Drop your chart into the workspace
+                      </p>
+
+                      <p className="mt-2 max-w-xs text-sm leading-6 text-zinc-500">
+                        Or tap below to select an image from your device.
+                      </p>
+
+                      <span className="mt-6 inline-flex items-center gap-2 rounded-xl bg-emerald-400 px-5 py-3 text-sm font-semibold text-black transition group-hover:bg-emerald-300">
+                        <FileImage size={17} />
+                        Choose chart image
+                      </span>
+
+                      <p className="mt-4 text-[11px] text-zinc-600">
+                        Images only · Maximum size 10 MB
+                      </p>
+                    </button>
+                  )}
+
+                  {/* Analysis controls */}
+                  <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <label
+                        htmlFor="instrument"
+                        className="mb-2 block text-xs font-medium text-zinc-400"
+                      >
+                        Instrument
+                      </label>
+
+                      <select
+                        id="instrument"
+                        value={instrument}
+                        onChange={(event) => setInstrument(event.target.value)}
+                        className="w-full rounded-xl border border-white/[0.09] bg-[#080B0A] px-4 py-3 text-sm text-zinc-200 outline-none focus:border-emerald-400/60"
+                      >
+                        {instruments.map((item) => (
+                          <option key={item} value={item}>
+                            {item}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="timeframe"
+                        className="mb-2 block text-xs font-medium text-zinc-400"
+                      >
+                        Chart timeframe
+                      </label>
+
+                      <select
+                        id="timeframe"
+                        value={timeframe}
+                        onChange={(event) => setTimeframe(event.target.value)}
+                        className="w-full rounded-xl border border-white/[0.09] bg-[#080B0A] px-4 py-3 text-sm text-zinc-200 outline-none focus:border-emerald-400/60"
+                      >
+                        {timeframes.map((item) => (
+                          <option key={item} value={item}>
+                            {item}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleAnalyze}
+                    disabled={isAnalyzing}
+                    className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-400 px-5 py-4 text-sm font-semibold text-black transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isAnalyzing ? (
+                      <Loader2 size={18} className="animate-spin" />
+                    ) : (
+                      <Sparkles size={18} />
+                    )}
+
+                    {isAnalyzing ? "Analyzing chart..." : "Analyze chart"}
+                    {!isAnalyzing && <ArrowUpRight size={17} />}
+                  </button>
+
+                  <p className="mt-3 text-center text-[11px] leading-5 text-zinc-600">
+                    AI-generated observations may be inaccurate and should
+                    be independently verified.
+                  </p>
+                </div>
+              </div>
+
+              {/* Results panel */}
+              <div className="rounded-2xl border border-white/[0.08] bg-[#0D1210]">
+                <div className="border-b border-white/[0.06] px-5 py-4">
+                  <div className="flex items-center gap-2">
+                    <Sparkles size={17} className="text-emerald-400" />
+                    <h3 className="font-semibold">Analysis report</h3>
+                  </div>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Your AI-generated observations will appear here.
+                  </p>
+                </div>
+
+                <div className="flex min-h-[340px] flex-col items-center justify-center px-6 py-10 text-center">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/[0.07] bg-white/[0.03] text-zinc-600">
+                    <BarChart3 size={25} />
+                  </div>
+
+                  <h4 className="mt-5 font-medium text-zinc-300">
+                    Your report starts here
+                  </h4>
+
+                  <p className="mt-2 max-w-xs text-sm leading-6 text-zinc-500">
+                    Upload a chart and start an analysis. We'll display
+                    chart observations, possible patterns, and relevant
+                    limitations in this panel.
+                  </p>
+
+                  <div className="mt-6 flex items-center gap-2 rounded-lg border border-white/[0.06] px-3 py-2 text-xs text-zinc-500">
+                    <Clock3 size={14} />
+                    Awaiting chart submission
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Recent analyses: sample entries until persistence is implemented */}
+            <section className="mt-8 rounded-2xl border border-white/[0.08] bg-[#0D1210]">
+              <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4 sm:px-6">
+                <div>
+                  <h3 className="font-semibold">Recent analyses</h3>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Your analysis history will be available here.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  className="flex items-center gap-2 text-xs text-zinc-400 transition hover:text-emerald-300"
+                >
+                  View history
+                  <ArrowUpRight size={14} />
+                </button>
+              </div>
+
+              <div className="divide-y divide-white/[0.05]">
+                {recentAnalyses.map((item) => (
+                  <div
+                    key={`${item.pair}-${item.timeframe}`}
+                    className="flex items-center justify-between gap-4 px-5 py-4 sm:px-6"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/[0.04] text-zinc-400">
+                        <FileImage size={18} />
+                      </div>
+
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">{item.pair}</p>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          {item.timeframe} timeframe · {item.date}
+                        </p>
+                      </div>
+                    </div>
+
+                    <span className="shrink-0 rounded-full bg-emerald-400/10 px-3 py-1 text-[10px] text-emerald-300">
+                      {item.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="border-t border-white/[0.05] px-5 py-3 sm:px-6">
+                <p className="text-[11px] text-zinc-600">
+                  Example entries only. Real history will be connected to
+                  persistent storage later.
+                </p>
+              </div>
+            </section>
+
+            {/* Footer */}
+            <footer className="flex flex-col gap-2 py-8 text-[11px] text-zinc-600 sm:flex-row sm:items-center sm:justify-between">
+              <p>AI-assisted market analysis workspace</p>
+              <p>Observations are informational, not guarantees.</p>
+            </footer>
+          </div>
+        </div>
+      </div>
     </main>
-  )
+  );
 }
-
-     
