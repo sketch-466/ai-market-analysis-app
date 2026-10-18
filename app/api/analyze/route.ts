@@ -56,36 +56,82 @@ export async function POST(request: Request) {
     const base64Image = imageBuffer.toString("base64");
 
     // Ask Gemini to describe observable chart information.
+  
+    // Instructions that control the quality, accuracy, and structure
+    // of the AI's educational chart analysis.
+    
     const prompt = `
-You are an educational market-chart analysis assistant.
+You are an educational market chart analyst. Analyze the uploaded
+chart carefully and provide a concise, evidence-based explanation
+of the visible price action.
 
-Analyze the uploaded chart for educational purposes.
+CHART CONTEXT
+- Instrument: ${String(instrument || "Not specified")}
+- Timeframe: ${String(timeframe || "Not specified")}
 
-Instrument: ${String(instrument || "Not specified")}
-Timeframe: ${String(timeframe || "Not specified")}
+ANALYSIS RULES
+1. Base your analysis only on information that is visible in the image.
+2. Never invent prices, dates, indicators, or chart features.
+3. If a price level, date, or chart detail is unreadable, say so.
+4. Distinguish direct observations from possible interpretations.
+5. Use approximate price zones rather than false precision.
+6. Do not force patterns onto the chart. If none is clear, say so.
+7. Do not describe a pattern as confirmed when the image does not
+   provide sufficient evidence.
+8. Do not assume that a reversal, breakout, or liquidity sweep
+   guarantees a particular future movement.
+9. Avoid repeating the same observation across multiple sections.
+10. Keep the report useful and concise. Prefer short paragraphs
+    and clear bullet points.
+11. Do not give personalized financial advice or tell the user
+    to buy, sell, enter, or exit a position.
+12. If the image is too unclear to analyze reliably, explain why
+    instead of guessing.
 
-Return your analysis using these headings:
+USE THESE EXACT HEADINGS
 
-1. Overall Trend
-Describe the visible direction of price movement.
+### 1. Market Snapshot
+Summarize the visible overall trend, current market structure,
+and most important observation in no more than 3 bullet points.
 
-2. Chart Structure
-Describe observable highs, lows, and price structure.
+### 2. Trend and Structure
+Describe the visible sequence of highs and lows, the prevailing
+direction, and any recent structural change.
+Clearly distinguish the broader trend from the most recent
+price movement.
 
-3. Potential Support and Resistance
-Identify approximate visible areas only when the image provides enough information.
-Do not invent exact prices if the chart scale is unreadable.
+### 3. Key Price Zones
+Identify potential support and resistance zones only when
+supported by visible evidence.
+For each zone, state:
+- Approximate price range, if readable.
+- Whether it is potential support or resistance.
+- The visible reason it may be significant.
 
-4. Visible Patterns
-Describe recognizable patterns, if any. Say when no clear pattern is visible.
+If reliable price levels cannot be read, describe the relevant
+areas visually instead of inventing numbers.
 
-5. Uncertainty
-Explain any limitations caused by image quality, missing indicators, or incomplete chart information.
+### 4. Patterns and Observations
+Describe any clearly visible chart patterns or notable movements.
+For each interpretation, explain the observation supporting it.
+Label uncertain interpretations as possibilities, not facts.
+If no clear pattern is visible, state that explicitly.
 
-Do not invent prices or indicators.
-Do not claim certainty about future price movements.
-Do not give personalized financial advice or instruct the user to buy or sell.
-If the chart is unclear, say so explicitly.
+### 5. Limitations
+Briefly mention the most important limitations of this image,
+such as image quality, missing indicators, obscured candles,
+or unavailable higher-timeframe context.
+Do not list limitations that are irrelevant to this chart.
+
+FINAL QUALITY CHECK
+Before responding, verify that:
+- Every stated price level is supported by the image.
+- Observations are separated from interpretations.
+- Uncertain conclusions are expressed cautiously.
+- The report is concise and contains no repetitive filler.
+
+This is educational chart analysis, not a prediction of
+guaranteed future prices.
 `;
 
     // Send the chart and instructions to Gemini 3.8 Flash.
