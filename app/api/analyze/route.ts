@@ -87,6 +87,19 @@ ANALYSIS RULES
     to buy, sell, enter, or exit a position.
 12. If the image is too unclear to analyze reliably, explain why
     instead of guessing.
+    
+13. The instrument and timeframe supplied in CHART CONTEXT are
+    the user's selected settings. Do not claim the prompt specified
+    different settings.
+14. If the chart visibly displays a timeframe that conflicts with
+    the supplied timeframe, briefly flag the discrepancy without
+    guessing which setting is correct.
+15. Never invent a discrepancy between the chart and the supplied
+    context.
+16. Ensure the response begins with the Market Snapshot heading.
+    Never begin in the middle of a sentence or section.
+17. Complete all five required sections. Keep each section concise,
+    but do not omit a section simply to shorten the response.
 
 USE THESE EXACT HEADINGS
 
