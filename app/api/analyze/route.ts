@@ -88,30 +88,27 @@ Do not give personalized financial advice or instruct the user to buy or sell.
 If the chart is unclear, say so explicitly.
 `;
 
-    // Send the chart image and instructions to Gemini.
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [
-        {
-          role: "user",
-          parts: [
-            { text: prompt },
-            {
-              inlineData: {
-                mimeType: image.type,
-                data: base64Image,
-              },
-            },
-          ],
-        },
-      ],
-    });
+    // Send the chart and instructions to Gemini 3.8 Flash.
+const response = await ai.interactions.create({
+  model: "gemini-3.8-flash",
+  input: [
+    {
+      type: "text",
+      text: prompt,
+    },
+    {
+      type: "image",
+      data: base64Image,
+      mime_type: image.type,
+    },
+  ],
+});
 
-    // Return the AI's analysis to the frontend.
-    return NextResponse.json({
-      success: true,
-      analysis: response.text || "The AI returned no analysis.",
-    });
+// Return the generated analysis to the frontend.
+return NextResponse.json({
+  success: true,
+  analysis: response.output_text || "The AI returned no analysis.",
+});
   } catch (error) {
     // Log technical details privately; return a safe message to the user.
     console.error("Chart analysis failed:", error);
