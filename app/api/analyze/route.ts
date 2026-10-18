@@ -1,24 +1,107 @@
 import { GoogleGenAI } from "@google/genai";
 import { NextResponse } from "next/server";
 
-// Use the Node.js runtime for server-side AI requests.
+// Use Node.js for server-side AI requests.
 export const runtime = "nodejs";
 
-// Initialize Gemini on the server using the private API key.
+// Initialize Gemini using the private server-side API key.
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
 
+// Define the structure we expect Gemini to return.
+const analysisSchema = {
+  type: "object",
+  properties: {
+    chartIdentity: {
+      type: "object",
+      properties: {
+        selectedInstrument: { type: "string" },
+        detectedInstrument: { type: "string" },
+        instrumentMismatch: { type: "boolean" },
+        selectedTimeframe: { type: "string" },
+        detectedTimeframe: { type: "string" },
+        timeframeMismatch: { type: "boolean" },
+        identityNotes: { type: "string" },
+      },
+      required: [
+        "selectedInstrument",
+        "detectedInstrument",
+        "instrumentMismatch",
+        "selectedTimeframe",
+        "detectedTimeframe",
+        "timeframeMismatch",
+        "identityNotes",
+      ],
+    },
+    snapshot: {
+      type: "object",
+      properties: {
+        trend: { type: "string" },
+        structure: { type: "string" },
+        keyObservation: { type: "string" },
+      },
+      required: ["trend", "structure", "keyObservation"],
+    },
+    trendAndStructure: { type: "string" },
+    priceZones: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          type: { type: "string" },
+          range: { type: "string" },
+          reason: { type: "string" },
+        },
+        required: ["type", "range", "reason"],
+      },
+    },
+    patternsAndObservations: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          observation: { type: "string" },
+          interpretation: { type: "string" },
+          confirmationNeeded: { type: "string" },
+        },
+        required: [
+          "observation",
+          "interpretation",
+          "confirmationNeeded",
+        ],
+      },
+    },
+    limitations: {
+      type: "array",
+      items: { type: "string" },
+    },
+  },
+  required: [
+    "chartIdentity",
+    "snapshot",
+    "trendAndStructure",
+    "priceZones",
+    "patternsAndObservations",
+    "limitations",
+  ],
+};
+
+// Normalize a value received from the form.
+function getFormValue(value: FormDataEntryValue | null) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 export async function POST(request: Request) {
   try {
-    // Read the uploaded chart and selected market settings.
+    // Read the uploaded image and the user's selected settings.
     const formData = await request.formData();
 
     const image = formData.get("chart");
-    const instrument = formData.get("instrument");
-    const timeframe = formData.get("timeframe");
+    const instrument = getFormValue(formData.get("instrument"));
+    const timeframe = getFormValue(formData.get("timeframe"));
 
-    // Ensure the uploaded file is actually an image.
+    // Make sure a chart image was uploaded.
     if (!(image instanceof File)) {
       return NextResponse.json(
         { error: "Please upload a chart image." },
@@ -33,7 +116,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // Limit uploads to 10 MB.
+    // Prevent unnecessarily large uploads.
     if (image.size > 10 * 1024 * 1024) {
       return NextResponse.json(
         { error: "The image must be smaller than 10 MB." },
@@ -41,7 +124,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // Check that the server has the Gemini API key.
+    // Verify the API key before making an AI request.
     if (!process.env.GEMINI_API_KEY) {
       console.error("GEMINI_API_KEY is missing.");
 
@@ -51,131 +134,147 @@ export async function POST(request: Request) {
       );
     }
 
-    // Convert the image to Base64 so Gemini can process it.
+    // Convert the uploaded image to Base64.
     const imageBuffer = Buffer.from(await image.arrayBuffer());
     const base64Image = imageBuffer.toString("base64");
 
-    // Ask Gemini to describe observable chart information.
-  
-    // Instructions that control the quality, accuracy, and structure
-    // of the AI's educational chart analysis.
-    
+    // Tell Gemini exactly what to analyze and how to structure it.
     const prompt = `
-You are an educational market chart analyst. Analyze the uploaded
-chart carefully and provide a concise, evidence-based explanation
-of the visible price action.
+You are an educational market chart analysis assistant.
 
-CHART CONTEXT
-- Instrument: ${String(instrument || "Not specified")}
-- Timeframe: ${String(timeframe || "Not specified")}
+Analyze the uploaded chart using only the information actually
+visible in the image.
 
-ANALYSIS RULES
-1. Base your analysis only on information that is visible in the image.
-2. Never invent prices, dates, indicators, or chart features.
-3. If a price level, date, or chart detail is unreadable, say so.
-4. Distinguish direct observations from possible interpretations.
-5. Use approximate price zones rather than false precision.
-6. Do not force patterns onto the chart. If none is clear, say so.
-7. Do not describe a pattern as confirmed when the image does not
-   provide sufficient evidence.
-8. Do not assume that a reversal, breakout, or liquidity sweep
-   guarantees a particular future movement.
-9. Avoid repeating the same observation across multiple sections.
-10. Keep the report useful and concise. Prefer short paragraphs
-    and clear bullet points.
-11. Do not give personalized financial advice or tell the user
-    to buy, sell, enter, or exit a position.
-12. If the image is too unclear to analyze reliably, explain why
-    instead of guessing.
-    
-13. The instrument and timeframe supplied in CHART CONTEXT are
-    the user's selected settings. Do not claim the prompt specified
-    different settings.
-14. If the chart visibly displays a timeframe that conflicts with
-    the supplied timeframe, briefly flag the discrepancy without
-    guessing which setting is correct.
-15. Never invent a discrepancy between the chart and the supplied
-    context.
-16. Ensure the response begins with the Market Snapshot heading.
-    Never begin in the middle of a sentence or section.
-17. Complete all five required sections. Keep each section concise,
-    but do not omit a section simply to shorten the response.
+USER-SELECTED SETTINGS
+Instrument: ${instrument || "Not specified"}
+Timeframe: ${timeframe || "Not specified"}
 
-USE THESE EXACT HEADINGS
+CHART IDENTITY
+1. Identify the instrument only if its symbol or identity is
+   reasonably readable in the screenshot.
+2. Identify the timeframe only if it is reasonably readable.
+3. If either cannot be identified, return "Unclear".
+4. Compare the visible identity with the user-selected settings.
+5. Mark a mismatch true only when there is clear evidence of
+   a genuine conflict.
+6. Do not invent a mismatch when the chart identity is unclear.
+7. Explain any genuine discrepancy briefly in identityNotes.
 
-### 1. Market Snapshot
-Summarize the visible overall trend, current market structure,
-and most important observation in no more than 3 bullet points.
+MARKET SNAPSHOT
+Summarize the visible trend, current structure, and most important
+observation in short, clear language.
 
-### 2. Trend and Structure
-Describe the visible sequence of highs and lows, the prevailing
-direction, and any recent structural change.
-Clearly distinguish the broader trend from the most recent
-price movement.
+TREND AND STRUCTURE
+Describe the visible highs, lows, direction, and recent changes.
+Distinguish the broader visible movement from the latest movement.
 
-### 3. Key Price Zones
-Identify potential support and resistance zones only when
-supported by visible evidence.
-For each zone, state:
-- Approximate price range, if readable.
-- Whether it is potential support or resistance.
-- The visible reason it may be significant.
+PRICE ZONES
+Identify potential support and resistance only where the chart
+provides visible evidence.
+Include approximate readable price ranges and explain why each
+area may matter.
+If price labels are unreadable, do not invent prices.
+The type must be "Support", "Resistance", or "Unclear".
 
-If reliable price levels cannot be read, describe the relevant
-areas visually instead of inventing numbers.
+PATTERNS AND OBSERVATIONS
+Separate the visible observation from its possible interpretation.
+Explain what additional evidence would help confirm an uncertain
+interpretation.
+Do not force patterns onto the chart.
+A wick alone does not prove buyer or seller intent.
+A sharp reversal alone does not prove a liquidity sweep,
+bear trap, or blow-off top.
 
-### 4. Patterns and Observations
-Describe any clearly visible chart patterns or notable movements.
-For each interpretation, explain the observation supporting it.
-Label uncertain interpretations as possibilities, not facts.
-If no clear pattern is visible, state that explicitly.
+LIMITATIONS
+List only relevant limitations, such as unclear labels, an open
+candle, missing indicators, or limited historical context.
 
-### 5. Limitations
-Briefly mention the most important limitations of this image,
-such as image quality, missing indicators, obscured candles,
-or unavailable higher-timeframe context.
-Do not list limitations that are irrelevant to this chart.
+ACCURACY RULES
+- Never invent prices, dates, candles, indicators, or chart details.
+- Do not treat an uncertain interpretation as a confirmed fact.
+- Be concise and avoid repeating the same information.
+- Do not predict guaranteed future movements.
+- Do not give personalized financial advice or trading instructions.
+- If the chart is unclear, acknowledge the uncertainty.
 
-FINAL QUALITY CHECK
-Before responding, verify that:
-- Every stated price level is supported by the image.
-- Observations are separated from interpretations.
-- Uncertain conclusions are expressed cautiously.
-- The report is concise and contains no repetitive filler.
-
-This is educational chart analysis, not a prediction of
-guaranteed future prices.
+Return the requested structured data only.
+Do not return Markdown, code fences, or additional commentary.
 `;
 
-    // Send the chart and instructions to Gemini 3.8 Flash.
-const response = await ai.interactions.create({
-  model: "gemini-3.8-flash",
-  input: [
-    {
-      type: "text",
-      text: prompt,
-    },
-    {
-      type: "image",
-      data: base64Image,
-      mime_type: image.type,
-    },
-  ],
-});
+    // Ask Gemini for structured JSON rather than a Markdown essay.
+    const response = await ai.interactions.create({
+      model: "gemini-3.8-flash",
+      input: [
+        {
+          type: "text",
+          text: prompt,
+        },
+        {
+          type: "image",
+          data: base64Image,
+          mime_type: image.type,
+        },
+      ],
+      response_format: {
+        type: "text",
+        mime_type: "application/json",
+        schema: analysisSchema,
+      },
+    });
 
-// Return the generated analysis to the frontend.
-return NextResponse.json({
-  success: true,
-  analysis: response.output_text || "The AI returned no analysis.",
-});
+    // Read the AI-generated JSON text.
+    const output = response.output_text;
+
+    if (!output) {
+      return NextResponse.json(
+        { error: "The AI returned an empty analysis. Please try again." },
+        { status: 502 }
+      );
+    }
+
+    // Parse the result instead of trusting arbitrary AI-generated text.
+    let analysis;
+
+    try {
+      analysis = JSON.parse(output);
+    } catch {
+      console.error("Gemini returned invalid JSON.");
+
+      return NextResponse.json(
+        { error: "The AI returned an invalid report. Please try again." },
+        { status: 502 }
+      );
+    }
+
+    // Confirm the essential report sections exist.
+    if (
+      !analysis.chartIdentity ||
+      !analysis.snapshot ||
+      typeof analysis.trendAndStructure !== "string" ||
+      !Array.isArray(analysis.priceZones) ||
+      !Array.isArray(analysis.patternsAndObservations) ||
+      !Array.isArray(analysis.limitations)
+    ) {
+      console.error("Gemini returned an incomplete analysis.");
+
+      return NextResponse.json(
+        { error: "The AI returned an incomplete report. Please try again." },
+        { status: 502 }
+      );
+    }
+
+    // Return structured analysis for the frontend to display.
+    return NextResponse.json({
+      success: true,
+      analysis,
+    });
   } catch (error) {
-    // Log technical details privately; return a safe message to the user.
+    // Keep technical details in server logs, not in the UI.
     console.error("Chart analysis failed:", error);
 
     return NextResponse.json(
       {
-        error:
-          "Chart analysis failed. Please try again in a moment.",
+        error: "Chart analysis failed. Please try again in a moment.",
       },
       { status: 500 }
     );
