@@ -1,6 +1,5 @@
-"use client";
-
 import { useRef, useState } from "react";
+import type { ChangeEvent, ReactNode } from "react";
 import {
   Activity,
   ArrowUpRight,
@@ -64,7 +63,7 @@ const recentAnalyses = [
 ];
 
 // Reusable badge for small pieces of interface information.
-function StatusBadge({ children }: { children: React.ReactNode }) {
+function StatusBadge({ children }: { children: ReactNode }) {
   return (
     <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300">
       <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
@@ -79,19 +78,26 @@ export default function Home() {
   const [timeframe, setTimeframe] = useState("4H");
 
   // Store the selected chart image and its temporary preview URL.
-  const [chartFile, setChartFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  // Store the selected chart image and its temporary preview URL.
+const [chartFile, setChartFile] = useState<File | null>(null);
+const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
-  // Track whether the user has requested an analysis.
-  // The actual AI integration will be implemented separately.
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
+// Track whether Gemini is currently analyzing the chart.
+const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+// Store the analysis returned by our backend.
+const [analysis, setAnalysis] = useState<string | null>(null);
+
+// Store a user-friendly error if analysis fails.
+const [analysisError, setAnalysisError] = useState<string | null>(null);
+
 
   // Reference the hidden file input so our custom upload button can open it.
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Accept an image selected by the user.
   function handleImageSelect(
-    event: React.ChangeEvent<HTMLInputElement>
+    event: ChangeEvent<HTMLInputElement>
   ) {
     const file = event.target.files?.[0];
 
@@ -136,18 +142,64 @@ export default function Home() {
     }
   }
 
-  // This is a temporary handler. We will replace it with a real
-  // backend request when the AI analysis endpoint is implemented.
-  function handleAnalyze() {
-    if (!chartFile) {
-      alert("Upload a chart image before starting your analysis.");
-      return;
+  // Send the selected chart to our server-side Gemini endpoint.
+async function handleAnalyze() {
+  // A chart is required before we can start.
+  if (!chartFile) {
+    setAnalysisError("Please upload a chart image first.");
+    setAnalysis(null);
+    return;
+  }
+
+  // Clear previous messages before starting another analysis.
+  setAnalysis(null);
+  setAnalysisError(null);
+  setIsAnalyzing(true);
+
+  try {
+    // FormData allows us to send the actual image file.
+    const formData = new FormData();
+
+    formData.append("chart", chartFile);
+    formData.append("instrument", instrument);
+    formData.append("timeframe", timeframe);
+
+    // Our Next.js API route handles the private Gemini API key.
+    const response = await fetch("/api/analyze", {
+      method: "POST",
+      body: formData,
+    });
+
+    // Read the response returned by the backend.
+    const result = await response.json();
+
+    // Handle HTTP errors and errors returned by our API.
+    if (!response.ok) {
+      throw new Error(
+        result.error || "Unable to analyze this chart. Please try again."
+      );
     }
 
-    alert(
-      "Chart upload is working. AI analysis will be connected in the next development step."
+    // Save the generated report so React displays it.
+    if (!result.analysis) {
+      throw new Error("The AI returned an empty report. Please try again.");
+    }
+
+    setAnalysis(result.analysis);
+  } catch (error) {
+    // Show a useful message if the request fails.
+    console.error("Chart analysis request failed:", error);
+
+    setAnalysisError(
+      error instanceof Error
+        ? error.message
+        : "Something went wrong. Please try again."
     );
+  } finally {
+    // Always stop the loading indicator, even if the request fails.
+    setIsAnalyzing(false);
   }
+}
 
   return (
     <main className="min-h-screen bg-[#080B0A] text-zinc-100">
@@ -309,10 +361,10 @@ export default function Home() {
                 </div>
 
                 <p className="mt-5 text-2xl font-semibold">
-                  <span className="text-amber-300">Setup pending</span>
+                  <span className="text-amber-300">connected</span>
                 </p>
                 <p className="mt-2 text-xs text-zinc-500">
-                  AI integration is our next milestone
+                  Gemini analysis endpoint configured
                 </p>
               </div>
             </section>
@@ -475,39 +527,104 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Results panel */}
-              <div className="rounded-2xl border border-white/[0.08] bg-[#0D1210]">
-                <div className="border-b border-white/[0.06] px-5 py-4">
-                  <div className="flex items-center gap-2">
-                    <Sparkles size={17} className="text-emerald-400" />
-                    <h3 className="font-semibold">Analysis report</h3>
-                  </div>
-                  <p className="mt-1 text-xs text-zinc-500">
-                    Your AI-generated observations will appear here.
-                  </p>
-                </div>
+              {/* Results panel: displays loading, errors, or the generated report. */}
+<div className="rounded-2xl border border-white/[0.08] bg-[#0D1210]">
+  <div className="border-b border-white/[0.06] px-5 py-4">
+    <div className="flex items-center gap-2">
+      <Sparkles size={17} className="text-emerald-400" />
+      <h3 className="font-semibold">Analysis report</h3>
+    </div>
 
-                <div className="flex min-h-[340px] flex-col items-center justify-center px-6 py-10 text-center">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/[0.07] bg-white/[0.03] text-zinc-600">
-                    <BarChart3 size={25} />
-                  </div>
+    <p className="mt-1 text-xs text-zinc-500">
+      AI-generated observations of your selected chart.
+    </p>
+  </div>
 
-                  <h4 className="mt-5 font-medium text-zinc-300">
-                    Your report starts here
-                  </h4>
+  <div className="min-h-[340px] p-5 sm:p-6">
+    {isAnalyzing ? (
+      // Loading state while the server waits for Gemini.
+      <div className="flex min-h-[290px] flex-col items-center justify-center text-center">
+        <Loader2 size={32} className="animate-spin text-emerald-400" />
 
-                  <p className="mt-2 max-w-xs text-sm leading-6 text-zinc-500">
-                    Upload a chart and start an analysis. We'll display
-                    chart observations, possible patterns, and relevant
-                    limitations in this panel.
-                  </p>
+        <h4 className="mt-5 font-medium text-zinc-200">
+          Analyzing your chart
+        </h4>
 
-                  <div className="mt-6 flex items-center gap-2 rounded-lg border border-white/[0.06] px-3 py-2 text-xs text-zinc-500">
-                    <Clock3 size={14} />
-                    Awaiting chart submission
-                  </div>
-                </div>
-              </div>
+        <p className="mt-2 max-w-xs text-sm leading-6 text-zinc-500">
+          The AI is examining visible price action and chart structure.
+          This may take a little while.
+        </p>
+      </div>
+    ) : analysisError ? (
+      // Error state with an option to retry.
+      <div className="flex min-h-[290px] flex-col items-center justify-center text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-red-400/20 bg-red-400/10 text-red-300">
+          <X size={24} />
+        </div>
+
+        <h4 className="mt-5 font-medium text-zinc-200">
+          Analysis unsuccessful
+        </h4>
+
+        <p role="alert" className="mt-2 max-w-sm text-sm leading-6 text-red-300">
+          {analysisError}
+        </p>
+
+        <button
+          type="button"
+          onClick={handleAnalyze}
+          disabled={!chartFile}
+          className="mt-5 rounded-xl border border-white/10 px-4 py-2.5 text-sm text-zinc-200 transition hover:bg-white/[0.05] disabled:opacity-40"
+        >
+          Try again
+        </button>
+      </div>
+    ) : analysis ? (
+      // Display the report returned by Gemini.
+      <div>
+        <div className="mb-5 flex items-center gap-2 text-emerald-300">
+          <ShieldCheck size={17} />
+          <span className="text-xs font-medium">
+            Analysis completed · {instrument} · {timeframe}
+          </span>
+        </div>
+
+        <div className="whitespace-pre-wrap break-words text-sm leading-7 text-zinc-300">
+          {analysis}
+        </div>
+
+        <div className="mt-6 rounded-xl border border-amber-400/10 bg-amber-400/[0.04] p-4">
+          <p className="text-xs leading-5 text-amber-200/80">
+            AI-generated observations can be inaccurate. Verify chart
+            details independently; this report does not predict outcomes
+            with certainty.
+          </p>
+        </div>
+      </div>
+    ) : (
+      // Empty state before the first analysis.
+      <div className="flex min-h-[290px] flex-col items-center justify-center text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/[0.07] bg-white/[0.03] text-zinc-600">
+          <BarChart3 size={25} />
+        </div>
+
+        <h4 className="mt-5 font-medium text-zinc-300">
+          Your report starts here
+        </h4>
+
+        <p className="mt-2 max-w-xs text-sm leading-6 text-zinc-500">
+          Upload a chart and start an analysis. The AI report will
+          appear here when processing is complete.
+        </p>
+
+        <div className="mt-6 flex items-center gap-2 rounded-lg border border-white/[0.06] px-3 py-2 text-xs text-zinc-500">
+          <Clock3 size={14} />
+          Awaiting chart submission
+        </div>
+      </div>
+    )}
+  </div>
+</div>
             </section>
 
             {/* Recent analyses: sample entries until persistence is implemented */}
