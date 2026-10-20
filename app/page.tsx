@@ -71,6 +71,16 @@ const instruments = [
   "BTC/USD",
 ];
 
+// Reusable badge for displaying workspace status.
+function StatusBadge({ children }: { children: ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300">
+      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+      {children}
+    </span>
+  );
+}
+
 const timeframes = [
   "1m",
   "5m",
