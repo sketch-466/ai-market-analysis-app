@@ -4,13 +4,16 @@ import { useRef, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
 import {
   Activity,
+  ArrowDownRight,
   ArrowUpRight,
   BarChart3,
+  ChevronDown,
   Clock3,
   FileImage,
   History,
   LayoutDashboard,
   Loader2,
+  Minus,
   Settings,
   ShieldCheck,
   Sparkles,
@@ -117,28 +120,125 @@ const recentAnalyses = [
   },
 ];
 
-// Reusable card for displaying one piece of analysis.
+// Reusable expandable card for displaying chart analysis.
 function AnalysisCard({
+  id,
   label,
   value,
   description,
+  expanded,
+  onToggle,
 }: {
+  id: string;
   label: string;
   value: string;
   description?: string;
+  expanded: boolean;
+  onToggle: (id: string) => void;
 }) {
+  // Choose a directional icon based on the displayed value.
+  const normalizedValue = value.toLowerCase();
+  
+  const isBullish = normalizedValue.includes("bullish");
+  const isBearish = normalizedValue.includes("bearish");
+  const isSideways =
+    normalizedValue.includes("sideways") ||
+    normalizedValue.includes("ranging");
+  
+  const TrendIcon = isBullish ?
+    ArrowUpRight :
+    isBearish ?
+    ArrowDownRight :
+    isSideways ?
+    Minus :
+    Activity;
+  
+  // Apply a different accent to each recognized trend.
+  const trendColor = isBullish ?
+    "text-emerald-300" :
+    isBearish ?
+    "text-rose-300" :
+    isSideways ?
+    "text-amber-300" :
+    "text-zinc-100";
+  
+  const trendBackground = isBullish ?
+    "bg-emerald-400/10 border-emerald-400/20" :
+    isBearish ?
+    "bg-rose-400/10 border-rose-400/20" :
+    isSideways ?
+    "bg-amber-400/10 border-amber-400/20" :
+    "bg-white/[0.03] border-white/[0.08]";
+  
   return (
-    <div className="min-w-0 rounded-xl border border-white/[0.07] bg-black/20 p-4">
-      <p className="text-xs font-medium text-zinc-500">{label}</p>
+    <div className="min-w-0 overflow-hidden rounded-xl border border-white/[0.08] bg-black/20 transition hover:border-white/[0.14]">
+      {/* Button makes the entire card accessible by touch and keyboard. */}
+      <button
+        type="button"
+        onClick={() => onToggle(id)}
+        aria-expanded={expanded}
+        className="flex w-full items-center justify-between gap-3 p-4 text-left"
+      >
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium text-zinc-500">
+            {label}
+          </p>
 
-      <p className="mt-2 break-words text-base font-semibold text-zinc-100">
-        {value}
-      </p>
+          <p
+            className={`mt-2 break-words text-base font-semibold ${
+              id === "trend" ? trendColor : "text-zinc-100"
+            }`}
+          >
+            {value}
+          </p>
 
-      {description && (
-        <p className="mt-2 break-words text-xs leading-5 text-zinc-400">
-          {description}
-        </p>
+          {/* Keep the summary compact until the card is expanded. */}
+          {!expanded && description && (
+            <p className="mt-2 line-clamp-2 text-xs leading-5 text-zinc-500">
+              {description}
+            </p>
+          )}
+
+          {!expanded && (
+            <p className="mt-2 text-[10px] text-zinc-600">
+              Tap to explore
+            </p>
+          )}
+        </div>
+
+        <div
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${
+            id === "trend"
+              ? trendBackground
+              : "border-white/[0.08] bg-white/[0.03]"
+          }`}
+        >
+          {id === "trend" ? (
+            <TrendIcon size={20} className={trendColor} />
+          ) : (
+            <ChevronDown
+              size={18}
+              className={`text-zinc-400 transition-transform ${
+                expanded ? "rotate-180" : ""
+              }`}
+            />
+          )}
+        </div>
+      </button>
+
+      {/* Additional information appears only when the card is opened. */}
+      {expanded && (
+        <div className="border-t border-white/[0.07] px-4 py-4">
+          {description ? (
+            <p className="whitespace-pre-wrap break-words text-sm leading-6 text-zinc-300">
+              {description}
+            </p>
+          ) : (
+            <p className="text-sm text-zinc-500">
+              No additional explanation was provided for this observation.
+            </p>
+          )}
+        </div>
       )}
     </div>
   );
@@ -162,6 +262,18 @@ const [analysis, setAnalysis] = useState<ChartAnalysis | null>(null);
 
 // Store a user-friendly error if analysis fails.
 const [analysisError, setAnalysisError] = useState<string | null>(null);
+
+// Track which report cards are currently expanded.
+const [expandedCards, setExpandedCards] = useState<string[]>([]);
+
+// Open a card if it is closed, or close it if it is already open.
+function toggleCard(cardId: string) {
+  setExpandedCards((current) =>
+    current.includes(cardId)
+      ? current.filter((id) => id !== cardId)
+      : [...current, cardId]
+  );
+}
 
 
   // Reference the hidden file input so our custom upload button can open it.
@@ -666,8 +778,18 @@ async function handleAnalyze() {
       // Structured analysis report.
       <div className="space-y-6">
         {/* Instrument and timeframe mismatch warning. */}
-        {(analysis.chartIdentity.instrumentMismatch ||
-          analysis.chartIdentity.timeframeMismatch) && (
+        {(
+  (
+    analysis.chartIdentity.instrumentMismatch &&
+    analysis.chartIdentity.selectedInstrument
+      .replace(/[^a-zA-Z0-9]/g, "")
+      .toUpperCase() !==
+    analysis.chartIdentity.detectedInstrument
+      .replace(/[^a-zA-Z0-9]/g, "")
+      .toUpperCase()
+  ) ||
+  analysis.chartIdentity.timeframeMismatch
+) && (
           <div
             role="alert"
             className="rounded-xl border border-amber-400/20 bg-amber-400/[0.06] p-4"
@@ -750,160 +872,311 @@ async function handleAnalyze() {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <AnalysisCard
-              label="Visible trend"
-              value={analysis.snapshot.trend}
-            />
+  {/* Expandable card showing the detected market trend. */}
+  <AnalysisCard
+    id="trend"
+    label="Market trend"
+    value={analysis.snapshot.trend}
+    description={analysis.trendAndStructure}
+    expanded={expandedCards.includes("trend")}
+    onToggle={toggleCard}
+  />
 
-            <AnalysisCard
-              label="Market structure"
-              value={analysis.snapshot.structure}
-            />
+  {/* Expandable card explaining the market structure. */}
+  <AnalysisCard
+    id="structure"
+    label="Market structure"
+    value={analysis.snapshot.structure}
+    description={analysis.trendAndStructure}
+    expanded={expandedCards.includes("structure")}
+    onToggle={toggleCard}
+  />
 
-            <div className="sm:col-span-2">
-              <AnalysisCard
-                label="Key observation"
-                value={analysis.snapshot.keyObservation}
-              />
-            </div>
-          </div>
+  {/* Expandable card revealing more about the key observation. */}
+  <div className="sm:col-span-2">
+    <AnalysisCard
+      id="observation"
+      label="Key observation"
+      value={analysis.snapshot.keyObservation}
+      description={
+        analysis.patternsAndObservations
+          .map(
+            (item) =>
+              `${item.observation}\n${item.interpretation}${
+                item.confirmationNeeded &&
+                item.confirmationNeeded !== "None"
+                  ? `\nConfirmation needed: ${item.confirmationNeeded}`
+                  : ""
+              }`
+          )
+          .join("\n\n") || "No additional observations were identified."
+      }
+      expanded={expandedCards.includes("observation")}
+      onToggle={toggleCard}
+    />
+  </div>
+</div>
         </section>
 
-        {/* Detailed explanation of price movement. */}
-        <section>
-          <h4 className="mb-3 font-semibold text-zinc-100">
-            Trend and structure
-          </h4>
+        {/* Collapsible section for the detailed trend and structure explanation. */}
+<section className="overflow-hidden rounded-xl border border-white/[0.07] bg-black/20">
 
-          <div className="rounded-xl border border-white/[0.07] bg-black/20 p-4">
-            <p className="whitespace-pre-wrap break-words text-sm leading-6 text-zinc-300">
-              {analysis.trendAndStructure}
+  {/* The header remains visible while the explanation is collapsed. */}
+  <button
+    type="button"
+    onClick={() => toggleCard("trend-details")}
+    aria-expanded={expandedCards.includes("trend-details")}
+    className="flex w-full items-center justify-between gap-3 p-4 text-left transition hover:bg-white/[0.02]"
+  >
+    <div>
+      <h4 className="font-semibold text-zinc-100">
+        Trend and structure details
+      </h4>
+
+      <p className="mt-1 text-xs text-zinc-500">
+        Explore the AI's explanation of visible price movement
+      </p>
+    </div>
+
+    <ChevronDown
+      size={18}
+      className={`shrink-0 text-zinc-400 transition-transform ${
+        expandedCards.includes("trend-details") ? "rotate-180" : ""
+      }`}
+    />
+  </button>
+
+  {/* Reveal the detailed explanation when requested. */}
+  {expandedCards.includes("trend-details") && (
+    <div className="border-t border-white/[0.07] p-4">
+      <p className="whitespace-pre-wrap break-words text-sm leading-6 text-zinc-300">
+        {analysis.trendAndStructure}
+      </p>
+    </div>
+  )}
+</section>
+
+        { /* Collapsible section for potential support and resistance zones. */ }
+<section className="overflow-hidden rounded-xl border border-white/[0.07] bg-black/20">
+
+  {/* Tapping the header opens or closes the section. */}
+  <button
+    type="button"
+    onClick={() => toggleCard("price-zones")}
+    aria-expanded={expandedCards.includes("price-zones")}
+    className="flex w-full items-center justify-between gap-3 p-4 text-left transition hover:bg-white/[0.02]"
+  >
+    <div>
+      <h4 className="font-semibold text-zinc-100">
+        Key price zones
+      </h4>
+
+      <p className="mt-1 text-xs text-zinc-500">
+        Potential support and resistance areas
+      </p>
+    </div>
+
+    <div className="flex items-center gap-3">
+      <span className="rounded-full border border-white/[0.08] px-2.5 py-1 text-xs text-zinc-400">
+        {analysis.priceZones.length}
+      </span>
+
+      <ChevronDown
+        size={18}
+        className={`shrink-0 text-zinc-400 transition-transform ${
+          expandedCards.includes("price-zones") ? "rotate-180" : ""
+        }`}
+      />
+    </div>
+  </button>
+
+  {/* Display the price-zone details only when expanded. */}
+  {expandedCards.includes("price-zones") && (
+    <div className="space-y-3 border-t border-white/[0.07] p-4">
+
+      {analysis.priceZones.length > 0 ? (
+        analysis.priceZones.map((zone, index) => (
+          <div
+            key={`${zone.type}-${zone.range}-${index}`}
+            className="rounded-xl border border-white/[0.07] bg-[#0D1210] p-4"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+
+              {/* Use different colors to distinguish support and resistance. */}
+              <span
+                className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                  zone.type.toLowerCase() === "support"
+                    ? "bg-emerald-400/10 text-emerald-300"
+                    : zone.type.toLowerCase() === "resistance"
+                      ? "bg-rose-400/10 text-rose-300"
+                      : "bg-zinc-400/10 text-zinc-300"
+                }`}
+              >
+                {zone.type}
+              </span>
+
+              <span className="break-words text-sm font-semibold text-zinc-100">
+                {zone.range}
+              </span>
+            </div>
+
+            <p className="mt-3 break-words text-sm leading-6 text-zinc-400">
+              {zone.reason}
             </p>
           </div>
-        </section>
+        ))
+      ) : (
+        <p className="text-sm leading-6 text-zinc-500">
+          No reliable price zones could be identified from this image.
+        </p>
+      )}
 
-        {/* Potential support and resistance zones. */}
-        <section>
-          <h4 className="mb-3 font-semibold text-zinc-100">
-            Key price zones
-          </h4>
+    </div>
+  )}
+</section>
 
-          {analysis.priceZones.length > 0 ? (
-            <div className="space-y-3">
-              {analysis.priceZones.map((zone, index) => (
-                <div
-                  key={`${zone.type}-${zone.range}-${index}`}
-                  className="rounded-xl border border-white/[0.07] bg-black/20 p-4"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span
-                      className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${
-                        zone.type.toLowerCase() === "support"
-                          ? "bg-emerald-400/10 text-emerald-300"
-                          : zone.type.toLowerCase() === "resistance"
-                            ? "bg-rose-400/10 text-rose-300"
-                            : "bg-zinc-400/10 text-zinc-300"
-                      }`}
-                    >
-                      {zone.type}
-                    </span>
+        { /* Collapsible section for patterns and chart observations. */ }
+<section className="overflow-hidden rounded-xl border border-white/[0.07] bg-black/20">
 
-                    <span className="break-words text-sm font-semibold text-zinc-100">
-                      {zone.range}
-                    </span>
-                  </div>
+  {/* Section header: tap to reveal or hide the observations. */}
+  <button
+    type="button"
+    onClick={() => toggleCard("patterns")}
+    aria-expanded={expandedCards.includes("patterns")}
+    className="flex w-full items-center justify-between gap-3 p-4 text-left transition hover:bg-white/[0.02]"
+  >
+    <div>
+      <h4 className="font-semibold text-zinc-100">
+        Patterns and observations
+      </h4>
 
-                  <p className="mt-3 break-words text-sm leading-6 text-zinc-400">
-                    {zone.reason}
-                  </p>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="rounded-xl border border-white/[0.07] p-4 text-sm text-zinc-500">
-              No reliable price zones could be identified from this image.
+      <p className="mt-1 text-xs text-zinc-500">
+        Visible chart features and possible interpretations
+      </p>
+    </div>
+
+    <div className="flex items-center gap-3">
+      <span className="rounded-full border border-white/[0.08] px-2.5 py-1 text-xs text-zinc-400">
+        {analysis.patternsAndObservations.length}
+      </span>
+
+      <ChevronDown
+        size={18}
+        className={`shrink-0 text-zinc-400 transition-transform ${
+          expandedCards.includes("patterns") ? "rotate-180" : ""
+        }`}
+      />
+    </div>
+  </button>
+
+  {/* Render the full observations only when the section is expanded. */}
+  {expandedCards.includes("patterns") && (
+    <div className="space-y-3 border-t border-white/[0.07] p-4">
+
+      {analysis.patternsAndObservations.length > 0 ? (
+        analysis.patternsAndObservations.map((item, index) => (
+          <div
+            key={`${item.observation}-${index}`}
+            className="rounded-xl border border-white/[0.07] bg-[#0D1210] p-4"
+          >
+            <p className="text-xs font-semibold uppercase tracking-wider text-emerald-300">
+              Observed
             </p>
-          )}
-        </section>
 
-        {/* Observations and possible interpretations. */}
-        <section>
-          <h4 className="mb-3 font-semibold text-zinc-100">
-            Patterns and observations
-          </h4>
-
-          {analysis.patternsAndObservations.length > 0 ? (
-            <div className="space-y-3">
-              {analysis.patternsAndObservations.map((item, index) => (
-                <div
-                  key={`${item.observation}-${index}`}
-                  className="rounded-xl border border-white/[0.07] bg-black/20 p-4"
-                >
-                  <p className="text-xs font-semibold uppercase tracking-wider text-emerald-300">
-                    Observed
-                  </p>
-
-                  <p className="mt-2 break-words text-sm leading-6 text-zinc-200">
-                    {item.observation}
-                  </p>
-
-                  <p className="mt-4 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                    Possible interpretation
-                  </p>
-
-                  <p className="mt-2 break-words text-sm leading-6 text-zinc-300">
-                    {item.interpretation}
-                  </p>
-
-                  {item.confirmationNeeded &&
-                    item.confirmationNeeded !== "None" && (
-                      <>
-                        <p className="mt-4 text-xs font-semibold uppercase tracking-wider text-amber-300">
-                          Uncertainty
-                        </p>
-
-                        <p className="mt-2 break-words text-sm leading-6 text-zinc-400">
-                          {item.confirmationNeeded}
-                        </p>
-                      </>
-                    )}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="rounded-xl border border-white/[0.07] p-4 text-sm text-zinc-500">
-              No clear patterns or notable observations were identified.
+            <p className="mt-2 break-words text-sm leading-6 text-zinc-200">
+              {item.observation}
             </p>
-          )}
-        </section>
 
-        {/* Limitations and transparency. */}
-        <section>
-          <h4 className="mb-3 font-semibold text-zinc-100">
-            Limitations
-          </h4>
+            <p className="mt-4 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+              Possible interpretation
+            </p>
 
-          <div className="rounded-xl border border-amber-400/10 bg-amber-400/[0.04] p-4">
-            {analysis.limitations.length > 0 ? (
-              <ul className="space-y-2">
-                {analysis.limitations.map((limitation, index) => (
-                  <li
-                    key={`${limitation}-${index}`}
-                    className="flex items-start gap-2 text-sm leading-6 text-zinc-400"
-                  >
-                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-300" />
-                    <span className="break-words">{limitation}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm leading-6 text-zinc-400">
-                No additional limitations were reported. The screenshot
-                may still omit relevant market context.
-              </p>
-            )}
+            <p className="mt-2 break-words text-sm leading-6 text-zinc-300">
+              {item.interpretation}
+            </p>
+
+            {/* Show uncertainty when the AI identifies something that needs confirmation. */}
+            {item.confirmationNeeded &&
+              item.confirmationNeeded !== "None" && (
+                <>
+                  <p className="mt-4 text-xs font-semibold uppercase tracking-wider text-amber-300">
+                    Uncertainty
+                  </p>
+
+                  <p className="mt-2 break-words text-sm leading-6 text-zinc-400">
+                    {item.confirmationNeeded}
+                  </p>
+                </>
+              )}
           </div>
-        </section>
+        ))
+      ) : (
+        <p className="text-sm leading-6 text-zinc-500">
+          No clear patterns or notable observations were identified.
+        </p>
+      )}
+
+    </div>
+  )}
+</section>
+
+        { /* Collapsible section explaining the limitations of the analysis. */ }
+<section className="overflow-hidden rounded-xl border border-amber-400/10 bg-amber-400/[0.03]">
+
+  {/* Tapping this header reveals or hides the limitations. */}
+  <button
+    type="button"
+    onClick={() => toggleCard("limitations")}
+    aria-expanded={expandedCards.includes("limitations")}
+    className="flex w-full items-center justify-between gap-3 p-4 text-left transition hover:bg-amber-400/[0.03]"
+  >
+    <div>
+      <h4 className="font-semibold text-zinc-100">
+        Limitations
+      </h4>
+
+      <p className="mt-1 text-xs text-zinc-500">
+        Important uncertainties and analysis constraints
+      </p>
+    </div>
+
+    <ChevronDown
+      size={18}
+      className={`shrink-0 text-amber-300 transition-transform ${
+        expandedCards.includes("limitations") ? "rotate-180" : ""
+      }`}
+    />
+  </button>
+
+  {/* Keep the details hidden until the user opens this section. */}
+  {expandedCards.includes("limitations") && (
+    <div className="border-t border-amber-400/10 p-4">
+
+      {analysis.limitations.length > 0 ? (
+        <ul className="space-y-3">
+          {analysis.limitations.map((limitation, index) => (
+            <li
+              key={`${limitation}-${index}`}
+              className="flex items-start gap-2 text-sm leading-6 text-zinc-400"
+            >
+              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-300" />
+
+              <span className="break-words">
+                {limitation}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm leading-6 text-zinc-400">
+          No additional limitations were reported. The screenshot may
+          still omit relevant market context.
+        </p>
+      )}
+
+    </div>
+  )}
+</section>
 
         {/* Persistent educational disclaimer. */}
         <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-4">
