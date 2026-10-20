@@ -18,6 +18,48 @@ import {
   X,
 } from "lucide-react";
 
+// Describes the instrument and timeframe visible in the uploaded chart.
+type ChartIdentity = {
+  selectedInstrument: string;
+  detectedInstrument: string;
+  instrumentMismatch: boolean;
+  selectedTimeframe: string;
+  detectedTimeframe: string;
+  timeframeMismatch: boolean;
+  identityNotes: string;
+};
+
+// The short summary displayed at the top of the report.
+type MarketSnapshot = {
+  trend: string;
+  structure: string;
+  keyObservation: string;
+};
+
+// A potential support or resistance area.
+type PriceZone = {
+  type: string;
+  range: string;
+  reason: string;
+};
+
+// An observable chart feature and its possible interpretation.
+type ChartObservation = {
+  observation: string;
+  interpretation: string;
+  confirmationNeeded: string;
+};
+
+// The complete structured response from the analysis API.
+type ChartAnalysis = {
+  chartIdentity: ChartIdentity;
+  snapshot: MarketSnapshot;
+  trendAndStructure: string;
+  priceZones: PriceZone[];
+  patternsAndObservations: ChartObservation[];
+  limitations: string[];
+};
+
 // The instruments and timeframes available in our analysis workspace.
 const instruments = [
   "EUR/USD",
@@ -26,6 +68,7 @@ const instruments = [
   "AUD/USD",
   "NZD/USD",
   "XAU/USD",
+  "BTC/USD",
 ];
 
 const timeframes = [
@@ -64,13 +107,30 @@ const recentAnalyses = [
   },
 ];
 
-// Reusable badge for small pieces of interface information.
-function StatusBadge({ children }: { children: ReactNode }) {
+// Reusable card for displaying one piece of analysis.
+function AnalysisCard({
+  label,
+  value,
+  description,
+}: {
+  label: string;
+  value: string;
+  description?: string;
+}) {
   return (
-    <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300">
-      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-      {children}
-    </span>
+    <div className="min-w-0 rounded-xl border border-white/[0.07] bg-black/20 p-4">
+      <p className="text-xs font-medium text-zinc-500">{label}</p>
+
+      <p className="mt-2 break-words text-base font-semibold text-zinc-100">
+        {value}
+      </p>
+
+      {description && (
+        <p className="mt-2 break-words text-xs leading-5 text-zinc-400">
+          {description}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -87,8 +147,8 @@ const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 // Track whether Gemini is currently analyzing the chart.
 const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-// Store the analysis returned by our backend.
-const [analysis, setAnalysis] = useState<string | null>(null);
+// Store the structured analysis returned by our API.
+const [analysis, setAnalysis] = useState<ChartAnalysis | null>(null);
 
 // Store a user-friendly error if analysis fails.
 const [analysisError, setAnalysisError] = useState<string | null>(null);
@@ -145,60 +205,66 @@ const [analysisError, setAnalysisError] = useState<string | null>(null);
   }
 
   // Send the selected chart to our server-side Gemini endpoint.
+// Send the chart to Gemini and validate the structured response.
 async function handleAnalyze() {
-  // A chart is required before we can start.
   if (!chartFile) {
     setAnalysisError("Please upload a chart image first.");
     setAnalysis(null);
     return;
   }
-
-  // Clear previous messages before starting another analysis.
+  
   setAnalysis(null);
   setAnalysisError(null);
   setIsAnalyzing(true);
-
+  
   try {
-    // FormData allows us to send the actual image file.
+    // Send the image and selected settings to our API.
     const formData = new FormData();
-
+    
     formData.append("chart", chartFile);
     formData.append("instrument", instrument);
     formData.append("timeframe", timeframe);
-
-    // Our Next.js API route handles the private Gemini API key.
+    
     const response = await fetch("/api/analyze", {
       method: "POST",
       body: formData,
     });
-
-    // Read the response returned by the backend.
+    
     const result = await response.json();
-
-    // Handle HTTP errors and errors returned by our API.
+    
     if (!response.ok) {
       throw new Error(
         result.error || "Unable to analyze this chart. Please try again."
       );
     }
-
-    // Save the generated report so React displays it.
-    if (!result.analysis) {
-      throw new Error("The AI returned an empty report. Please try again.");
+    
+    // Make sure the API returned all the main report sections.
+    const report = result.analysis;
+    
+    if (
+      !report ||
+      !report.chartIdentity ||
+      !report.snapshot ||
+      typeof report.trendAndStructure !== "string" ||
+      !Array.isArray(report.priceZones) ||
+      !Array.isArray(report.patternsAndObservations) ||
+      !Array.isArray(report.limitations)
+    ) {
+      throw new Error(
+        "The AI returned an incomplete report. Please try again."
+      );
     }
-
-    setAnalysis(result.analysis);
+    
+    setAnalysis(report as ChartAnalysis);
   } catch (error) {
-    // Show a useful message if the request fails.
     console.error("Chart analysis request failed:", error);
-
+    
     setAnalysisError(
-      error instanceof Error
-        ? error.message
-        : "Something went wrong. Please try again."
+      error instanceof Error ?
+      error.message :
+      "Something went wrong. Please try again."
     );
   } finally {
-    // Always stop the loading indicator, even if the request fails.
     setIsAnalyzing(false);
   }
 }
@@ -529,22 +595,24 @@ async function handleAnalyze() {
                 </div>
               </div>
 
-              {/* Results panel: displays loading, errors, or the generated report. */}
-<div className="rounded-2xl border border-white/[0.08] bg-[#0D1210]">
+              {/* Results panel: shows loading, errors, or structured analysis. */}
+<div className="min-w-0 rounded-2xl border border-white/[0.08] bg-[#0D1210]">
+  {/* Report header */}
   <div className="border-b border-white/[0.06] px-5 py-4">
     <div className="flex items-center gap-2">
       <Sparkles size={17} className="text-emerald-400" />
+
       <h3 className="font-semibold">Analysis report</h3>
     </div>
 
     <p className="mt-1 text-xs text-zinc-500">
-      AI-generated observations of your selected chart.
+      Structured observations from your uploaded chart.
     </p>
   </div>
 
-  <div className="min-h-[340px] p-5 sm:p-6">
+  <div className="min-w-0 p-5 sm:p-6">
     {isAnalyzing ? (
-      // Loading state while the server waits for Gemini.
+      // Loading state.
       <div className="flex min-h-[290px] flex-col items-center justify-center text-center">
         <Loader2 size={32} className="animate-spin text-emerald-400" />
 
@@ -553,12 +621,12 @@ async function handleAnalyze() {
         </h4>
 
         <p className="mt-2 max-w-xs text-sm leading-6 text-zinc-500">
-          The AI is examining visible price action and chart structure.
-          This may take a little while.
+          Examining visible price action, chart structure, and potential
+          price zones.
         </p>
       </div>
     ) : analysisError ? (
-      // Error state with an option to retry.
+      // Error state.
       <div className="flex min-h-[290px] flex-col items-center justify-center text-center">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-red-400/20 bg-red-400/10 text-red-300">
           <X size={24} />
@@ -568,7 +636,10 @@ async function handleAnalyze() {
           Analysis unsuccessful
         </h4>
 
-        <p role="alert" className="mt-2 max-w-sm text-sm leading-6 text-red-300">
+        <p
+          role="alert"
+          className="mt-2 max-w-sm text-sm leading-6 text-red-300"
+        >
           {analysisError}
         </p>
 
@@ -582,25 +653,262 @@ async function handleAnalyze() {
         </button>
       </div>
     ) : analysis ? (
-      // Display the report returned by Gemini.
-      <div>
-        <div className="mb-5 flex items-center gap-2 text-emerald-300">
-          <ShieldCheck size={17} />
-          <span className="text-xs font-medium">
-            Analysis completed · {instrument} · {timeframe}
-          </span>
-        </div>
+      // Structured analysis report.
+      <div className="space-y-6">
+        {/* Instrument and timeframe mismatch warning. */}
+        {(analysis.chartIdentity.instrumentMismatch ||
+          analysis.chartIdentity.timeframeMismatch) && (
+          <div
+            role="alert"
+            className="rounded-xl border border-amber-400/20 bg-amber-400/[0.06] p-4"
+          >
+            <div className="flex items-start gap-3">
+              <ShieldCheck
+                size={19}
+                className="mt-0.5 shrink-0 text-amber-300"
+              />
 
-        <div className="whitespace-pre-wrap break-words text-sm leading-7 text-zinc-300">
-          {analysis}
-        </div>
+              <div className="min-w-0">
+                <h4 className="font-semibold text-amber-200">
+                  Chart settings mismatch
+                </h4>
 
-        <div className="mt-6 rounded-xl border border-amber-400/10 bg-amber-400/[0.04] p-4">
-          <p className="text-xs leading-5 text-amber-200/80">
-            AI-generated observations can be inaccurate. Verify chart
-            details independently; this report does not predict outcomes
-            with certainty.
-          </p>
+                <p className="mt-2 text-sm leading-6 text-zinc-300">
+                  The visible chart information may differ from your
+                  selected settings.
+                </p>
+
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-lg bg-black/20 p-3">
+                    <p className="text-xs text-zinc-500">
+                      Selected instrument
+                    </p>
+
+                    <p className="mt-1 break-words text-sm font-medium text-zinc-200">
+                      {analysis.chartIdentity.selectedInstrument}
+                    </p>
+
+                    <p className="mt-2 text-xs text-zinc-500">
+                      Visible instrument
+                    </p>
+
+                    <p className="mt-1 break-words text-sm font-medium text-zinc-200">
+                      {analysis.chartIdentity.detectedInstrument}
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg bg-black/20 p-3">
+                    <p className="text-xs text-zinc-500">
+                      Selected timeframe
+                    </p>
+
+                    <p className="mt-1 text-sm font-medium text-zinc-200">
+                      {analysis.chartIdentity.selectedTimeframe}
+                    </p>
+
+                    <p className="mt-2 text-xs text-zinc-500">
+                      Visible timeframe
+                    </p>
+
+                    <p className="mt-1 text-sm font-medium text-zinc-200">
+                      {analysis.chartIdentity.detectedTimeframe}
+                    </p>
+                  </div>
+                </div>
+
+                {analysis.chartIdentity.identityNotes &&
+                  analysis.chartIdentity.identityNotes !== "None" && (
+                    <p className="mt-3 text-xs leading-5 text-amber-100/80">
+                      {analysis.chartIdentity.identityNotes}
+                    </p>
+                  )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Market snapshot cards. */}
+        <section>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h4 className="font-semibold text-zinc-100">
+              Market snapshot
+            </h4>
+
+            <span className="text-[10px] uppercase tracking-wider text-zinc-500">
+              Overview
+            </span>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <AnalysisCard
+              label="Visible trend"
+              value={analysis.snapshot.trend}
+            />
+
+            <AnalysisCard
+              label="Market structure"
+              value={analysis.snapshot.structure}
+            />
+
+            <div className="sm:col-span-2">
+              <AnalysisCard
+                label="Key observation"
+                value={analysis.snapshot.keyObservation}
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* Detailed explanation of price movement. */}
+        <section>
+          <h4 className="mb-3 font-semibold text-zinc-100">
+            Trend and structure
+          </h4>
+
+          <div className="rounded-xl border border-white/[0.07] bg-black/20 p-4">
+            <p className="whitespace-pre-wrap break-words text-sm leading-6 text-zinc-300">
+              {analysis.trendAndStructure}
+            </p>
+          </div>
+        </section>
+
+        {/* Potential support and resistance zones. */}
+        <section>
+          <h4 className="mb-3 font-semibold text-zinc-100">
+            Key price zones
+          </h4>
+
+          {analysis.priceZones.length > 0 ? (
+            <div className="space-y-3">
+              {analysis.priceZones.map((zone, index) => (
+                <div
+                  key={`${zone.type}-${zone.range}-${index}`}
+                  className="rounded-xl border border-white/[0.07] bg-black/20 p-4"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span
+                      className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                        zone.type.toLowerCase() === "support"
+                          ? "bg-emerald-400/10 text-emerald-300"
+                          : zone.type.toLowerCase() === "resistance"
+                            ? "bg-rose-400/10 text-rose-300"
+                            : "bg-zinc-400/10 text-zinc-300"
+                      }`}
+                    >
+                      {zone.type}
+                    </span>
+
+                    <span className="break-words text-sm font-semibold text-zinc-100">
+                      {zone.range}
+                    </span>
+                  </div>
+
+                  <p className="mt-3 break-words text-sm leading-6 text-zinc-400">
+                    {zone.reason}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="rounded-xl border border-white/[0.07] p-4 text-sm text-zinc-500">
+              No reliable price zones could be identified from this image.
+            </p>
+          )}
+        </section>
+
+        {/* Observations and possible interpretations. */}
+        <section>
+          <h4 className="mb-3 font-semibold text-zinc-100">
+            Patterns and observations
+          </h4>
+
+          {analysis.patternsAndObservations.length > 0 ? (
+            <div className="space-y-3">
+              {analysis.patternsAndObservations.map((item, index) => (
+                <div
+                  key={`${item.observation}-${index}`}
+                  className="rounded-xl border border-white/[0.07] bg-black/20 p-4"
+                >
+                  <p className="text-xs font-semibold uppercase tracking-wider text-emerald-300">
+                    Observed
+                  </p>
+
+                  <p className="mt-2 break-words text-sm leading-6 text-zinc-200">
+                    {item.observation}
+                  </p>
+
+                  <p className="mt-4 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                    Possible interpretation
+                  </p>
+
+                  <p className="mt-2 break-words text-sm leading-6 text-zinc-300">
+                    {item.interpretation}
+                  </p>
+
+                  {item.confirmationNeeded &&
+                    item.confirmationNeeded !== "None" && (
+                      <>
+                        <p className="mt-4 text-xs font-semibold uppercase tracking-wider text-amber-300">
+                          Uncertainty
+                        </p>
+
+                        <p className="mt-2 break-words text-sm leading-6 text-zinc-400">
+                          {item.confirmationNeeded}
+                        </p>
+                      </>
+                    )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="rounded-xl border border-white/[0.07] p-4 text-sm text-zinc-500">
+              No clear patterns or notable observations were identified.
+            </p>
+          )}
+        </section>
+
+        {/* Limitations and transparency. */}
+        <section>
+          <h4 className="mb-3 font-semibold text-zinc-100">
+            Limitations
+          </h4>
+
+          <div className="rounded-xl border border-amber-400/10 bg-amber-400/[0.04] p-4">
+            {analysis.limitations.length > 0 ? (
+              <ul className="space-y-2">
+                {analysis.limitations.map((limitation, index) => (
+                  <li
+                    key={`${limitation}-${index}`}
+                    className="flex items-start gap-2 text-sm leading-6 text-zinc-400"
+                  >
+                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-300" />
+                    <span className="break-words">{limitation}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm leading-6 text-zinc-400">
+                No additional limitations were reported. The screenshot
+                may still omit relevant market context.
+              </p>
+            )}
+          </div>
+        </section>
+
+        {/* Persistent educational disclaimer. */}
+        <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-4">
+          <div className="flex items-start gap-2">
+            <ShieldCheck
+              size={16}
+              className="mt-0.5 shrink-0 text-emerald-300"
+            />
+
+            <p className="text-xs leading-5 text-zinc-400">
+              This report describes visible chart information and possible
+              interpretations. AI can misread screenshots, and the report
+              cannot guarantee future price movements.
+            </p>
+          </div>
         </div>
       </div>
     ) : (
@@ -615,8 +923,8 @@ async function handleAnalyze() {
         </h4>
 
         <p className="mt-2 max-w-xs text-sm leading-6 text-zinc-500">
-          Upload a chart and start an analysis. The AI report will
-          appear here when processing is complete.
+          Upload a chart and start an analysis. Your structured report
+          will appear here when processing is complete.
         </p>
 
         <div className="mt-6 flex items-center gap-2 rounded-lg border border-white/[0.06] px-3 py-2 text-xs text-zinc-500">
