@@ -34,15 +34,52 @@ const analysisSchema = {
         "identityNotes",
       ],
     },
-    snapshot: {
-      type: "object",
-      properties: {
-        trend: { type: "string" },
-        structure: { type: "string" },
-        keyObservation: { type: "string" },
-      },
-      required: ["trend", "structure", "keyObservation"],
+    // Compact summary displayed in the dashboard's result cards.
+snapshot: {
+  type: "object",
+  properties: {
+    trend: { type: "string" },
+    structure: { type: "string" },
+    keyObservation: { type: "string" },
+    
+    // A cautious scenario, not a guaranteed market prediction.
+    tradeIdea: {
+      type: "string",
+      enum: ["Buy", "Sell", "Wait", "No clear setup"],
     },
+    
+    // Only provide price levels when the chart supports them.
+    entry: { type: "string" },
+    stopLoss: { type: "string" },
+    initialTakeProfit: { type: "string" },
+    finalTakeProfit: { type: "string" },
+    
+    // Use "Not available" if the ratio cannot be justified.
+    riskRewardRatio: { type: "string" },
+    
+    // Describe the strength of the visible evidence.
+    strength: {
+      type: "string",
+      enum: ["Strong", "Moderate", "Weak", "Unclear"],
+    },
+    
+    // Do not invent a duration if the chart cannot support one.
+    estimatedDuration: { type: "string" },
+  },
+  required: [
+    "trend",
+    "structure",
+    "keyObservation",
+    "tradeIdea",
+    "entry",
+    "stopLoss",
+    "initialTakeProfit",
+    "finalTakeProfit",
+    "riskRewardRatio",
+    "strength",
+    "estimatedDuration",
+  ],
+},
     trendAndStructure: { type: "string" },
     priceZones: {
       type: "array",
@@ -164,6 +201,80 @@ MARKET SNAPSHOT
 Summarize the visible trend, current structure, and most important
 observation in short, clear language.
 
+Also populate the following fields for the dashboard's nine result cards:
+
+TRADE IDEA
+Choose exactly one of:
+- Buy
+- Sell
+- Wait
+- No clear setup
+
+Treat this as an educational description of a possible scenario,
+not a personalized trading recommendation.
+Use Buy or Sell only when the visible chart provides meaningful
+evidence for a hypothetical scenario.
+Use Wait when a potentially relevant setup needs confirmation.
+Use No clear setup when the chart does not support a meaningful
+scenario.
+
+ENTRY
+Provide a price only when a defensible hypothetical entry level
+can be identified from visible chart evidence.
+Otherwise return "Not available".
+
+STOP LOSS
+Provide a hypothetical invalidation level only when the chart
+supports one and the required assumptions are clear.
+Otherwise return "Not available".
+
+INITIAL TAKE PROFIT
+Provide a hypothetical target only when the visible chart supports
+a defensible level.
+Otherwise return "Not available".
+
+FINAL TAKE PROFIT
+Provide a second hypothetical target only when the chart supports
+one.
+Otherwise return "Not available".
+
+RISK/REWARD RATIO
+Calculate a ratio only when the entry, stop-loss, and target values
+are available, use compatible price units, and form a coherent
+hypothetical scenario.
+Otherwise return "Not available".
+Never invent a ratio to fill the card.
+
+STRENGTH
+Choose exactly one of:
+- Strong
+- Moderate
+- Weak
+- Unclear
+
+Describe the strength of the visible chart evidence, not the
+probability of making a profit.
+Strong means several clear observations support the interpretation.
+Moderate means some supporting evidence exists but uncertainty
+remains.
+Weak means the evidence is limited.
+Unclear means the chart cannot support a reliable assessment.
+
+ESTIMATED DURATION
+Provide an estimated duration only when there is sufficient
+visible historical context and a clearly stated basis for the
+estimate.
+Otherwise return "Not available".
+Never present an estimated duration as a guarantee.
+
+PRICE CONSISTENCY
+- Never invent exact prices or claim unreadable values are visible.
+- Do not use entry, stop-loss, or target values merely because the
+  dashboard has cards that need to be filled.
+- Keep all hypothetical levels consistent with the same scenario.
+- If the chart is too unclear to support these values, use
+  "Not available".
+
 TREND AND STRUCTURE
 Describe the visible highs, lows, direction, and recent changes.
 Distinguish the broader visible movement from the latest movement.
@@ -246,22 +357,36 @@ Do not return Markdown, code fences, or additional commentary.
       );
     }
 
-    // Confirm the essential report sections exist.
-    if (
-      !analysis.chartIdentity ||
-      !analysis.snapshot ||
-      typeof analysis.trendAndStructure !== "string" ||
-      !Array.isArray(analysis.priceZones) ||
-      !Array.isArray(analysis.patternsAndObservations) ||
-      !Array.isArray(analysis.limitations)
-    ) {
-      console.error("Gemini returned an incomplete analysis.");
+    // Confirm that all essential report sections and dashboard card
+// fields exist before sending the analysis to the frontend.
+if (
+  !analysis.chartIdentity ||
+  !analysis.snapshot ||
+  typeof analysis.snapshot.trend !== "string" ||
+  typeof analysis.snapshot.structure !== "string" ||
+  typeof analysis.snapshot.keyObservation !== "string" ||
+  typeof analysis.snapshot.tradeIdea !== "string" ||
+  typeof analysis.snapshot.entry !== "string" ||
+  typeof analysis.snapshot.stopLoss !== "string" ||
+  typeof analysis.snapshot.initialTakeProfit !== "string" ||
+  typeof analysis.snapshot.finalTakeProfit !== "string" ||
+  typeof analysis.snapshot.riskRewardRatio !== "string" ||
+  typeof analysis.snapshot.strength !== "string" ||
+  typeof analysis.snapshot.estimatedDuration !== "string" ||
+  typeof analysis.trendAndStructure !== "string" ||
+  !Array.isArray(analysis.priceZones) ||
+  !Array.isArray(analysis.patternsAndObservations) ||
+  !Array.isArray(analysis.limitations)
+) {
+  console.error("Gemini returned an incomplete analysis.");
 
-      return NextResponse.json(
-        { error: "The AI returned an incomplete report. Please try again." },
-        { status: 502 }
-      );
-    }
+  return NextResponse.json(
+    {
+      error: "The AI returned an incomplete report. Please try again.",
+    },
+    { status: 502 }
+  );
+}
 
     // Return structured analysis for the frontend to display.
     return NextResponse.json({

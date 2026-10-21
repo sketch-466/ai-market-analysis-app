@@ -7,19 +7,27 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   BarChart3,
-  ChevronDown,
   Clock3,
+  ShieldCheck,
+  Target,
+  TrendingUp,
+  TrendingDown,
+  Scale,
+  Timer,
+  Gauge,
+  Lightbulb,
+  ChevronDown,
   FileImage,
   History,
   LayoutDashboard,
   Loader2,
   Minus,
   Settings,
-  ShieldCheck,
   Sparkles,
   Upload,
   X,
 } from "lucide-react";
+
 
 // Describes the instrument and timeframe visible in the uploaded chart.
 type ChartIdentity = {
@@ -32,11 +40,25 @@ type ChartIdentity = {
   identityNotes: string;
 };
 
-// The short summary displayed at the top of the report.
+// Summary data displayed in the dashboard's nine result cards.
 type MarketSnapshot = {
   trend: string;
   structure: string;
   keyObservation: string;
+  
+  // The educational scenario selected by the AI.
+  tradeIdea: "Buy" | "Sell" | "Wait" | "No clear setup";
+  
+  // Hypothetical levels, when supported by chart evidence.
+  entry: string;
+  stopLoss: string;
+  initialTakeProfit: string;
+  finalTakeProfit: string;
+  
+  // Additional context for the result cards.
+  riskRewardRatio: string;
+  strength: "Strong" | "Moderate" | "Weak" | "Unclear";
+  estimatedDuration: string;
 };
 
 // A potential support or resistance area.
@@ -239,6 +261,51 @@ function AnalysisCard({
             </p>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+// Defines the information each result card needs to display.
+type ResultCardProps = {
+  label: string;
+  value: string;
+  icon: ReactNode;
+  color: string;
+  description?: string;
+};
+
+// Reusable card styled to match the client's reference design.
+function ResultCard({
+  label,
+  value,
+  icon,
+  color,
+  description,
+}: ResultCardProps) {
+  return (
+    <div
+      className={`rounded-2xl border border-slate-200 p-4 ${color}`}
+    >
+      {/* Icon and label appear together at the top. */}
+      <div className="mb-3 flex items-center gap-2">
+        <span className="text-slate-600">{icon}</span>
+
+        <p className="text-xs font-medium text-slate-600">
+          {label}
+        </p>
+      </div>
+
+      {/* The main result is larger and easier to scan. */}
+      <p className="break-words text-lg font-bold text-slate-900">
+        {value || "Not available"}
+      </p>
+
+      {/* Optional explanation for results that need context. */}
+      {description && (
+        <p className="mt-2 text-xs leading-5 text-slate-600">
+          {description}
+        </p>
       )}
     </div>
   );
@@ -872,49 +939,84 @@ async function handleAnalyze() {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
-  {/* Expandable card showing the detected market trend. */}
-  <AnalysisCard
-    id="trend"
-    label="Market trend"
+  { /* Nine compact result cards styled for the client's dashboard. */ }
+<div className="grid grid-cols-2 gap-3 sm:gap-4">
+
+  {/* 1. Market Trend */}
+  <ResultCard
+    label="Trend"
     value={analysis.snapshot.trend}
-    description={analysis.trendAndStructure}
-    expanded={expandedCards.includes("trend")}
-    onToggle={toggleCard}
+    icon={<Activity size={18} />}
+    color="bg-emerald-50"
   />
 
-  {/* Expandable card explaining the market structure. */}
-  <AnalysisCard
-    id="structure"
-    label="Market structure"
-    value={analysis.snapshot.structure}
-    description={analysis.trendAndStructure}
-    expanded={expandedCards.includes("structure")}
-    onToggle={toggleCard}
+  {/* 2. Trade Idea */}
+  <ResultCard
+    label="Trade Idea"
+    value={analysis.snapshot.tradeIdea}
+    icon={<Lightbulb size={18} />}
+    color="bg-sky-50"
+    description="Educational scenario, not a trading instruction."
   />
 
-  {/* Expandable card revealing more about the key observation. */}
-  <div className="sm:col-span-2">
-    <AnalysisCard
-      id="observation"
-      label="Key observation"
-      value={analysis.snapshot.keyObservation}
-      description={
-        analysis.patternsAndObservations
-          .map(
-            (item) =>
-              `${item.observation}\n${item.interpretation}${
-                item.confirmationNeeded &&
-                item.confirmationNeeded !== "None"
-                  ? `\nConfirmation needed: ${item.confirmationNeeded}`
-                  : ""
-              }`
-          )
-          .join("\n\n") || "No additional observations were identified."
-      }
-      expanded={expandedCards.includes("observation")}
-      onToggle={toggleCard}
-    />
-  </div>
+  {/* 3. Entry */}
+  <ResultCard
+    label="Entry"
+    value={analysis.snapshot.entry}
+    icon={<Target size={18} />}
+    color="bg-orange-50"
+  />
+
+  {/* 4. Stop Loss */}
+  <ResultCard
+    label="Stop Loss"
+    value={analysis.snapshot.stopLoss}
+    icon={<ShieldCheck size={18} />}
+    color="bg-rose-50"
+  />
+
+  {/* 5. Initial Take Profit */}
+  <ResultCard
+    label="Initial TP"
+    value={analysis.snapshot.initialTakeProfit}
+    icon={<ArrowUpRight size={18} />}
+    color="bg-violet-50"
+  />
+
+  {/* 6. Final Take Profit */}
+  <ResultCard
+    label="Final TP"
+    value={analysis.snapshot.finalTakeProfit}
+    icon={<Target size={18} />}
+    color="bg-purple-50"
+  />
+
+  {/* 7. Risk/Reward Ratio */}
+  <ResultCard
+    label="Risk/Reward"
+    value={analysis.snapshot.riskRewardRatio}
+    icon={<Scale size={18} />}
+    color="bg-amber-50"
+  />
+
+  {/* 8. Strength */}
+  <ResultCard
+    label="Strength"
+    value={analysis.snapshot.strength}
+    icon={<Gauge size={18} />}
+    color="bg-teal-50"
+    description="Strength of the visible chart evidence."
+  />
+
+  {/* 9. Estimated Duration */}
+  <ResultCard
+    label="Estimate"
+    value={analysis.snapshot.estimatedDuration}
+    icon={<Timer size={18} />}
+    color="bg-slate-50"
+  />
+
+</div>
 </div>
         </section>
 
