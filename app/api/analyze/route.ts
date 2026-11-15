@@ -4,10 +4,40 @@ import { NextResponse } from "next/server";
 // Use Node.js for server-side AI requests.
 export const runtime = "nodejs";
 
+// Give the function a 60s budget on Vercel (analysis up to 45s +
+// verification up to 20s must fit inside it).
+export const maxDuration = 60;
+
 // Initialize Gemini using the private server-side API key.
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
+
+// Fail fast when a Gemini call hangs instead of waiting for the
+// platform to kill the whole invocation.
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${ms / 1000}s`)),
+      ms
+    );
+
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    );
+  });
+}
 
 // Define the structure we expect Gemini to return.
 const analysisSchema = {
@@ -35,51 +65,51 @@ const analysisSchema = {
       ],
     },
     // Compact summary displayed in the dashboard's result cards.
-snapshot: {
-  type: "object",
-  properties: {
-    trend: { type: "string" },
-    structure: { type: "string" },
-    keyObservation: { type: "string" },
+    snapshot: {
+      type: "object",
+      properties: {
+        trend: { type: "string" },
+        structure: { type: "string" },
+        keyObservation: { type: "string" },
 
-    // A cautious scenario, not a guaranteed market prediction.
-    tradeIdea: {
-      type: "string",
-      enum: ["Buy", "Sell", "Wait", "No clear setup"],
+        // A cautious scenario, not a guaranteed market prediction.
+        tradeIdea: {
+          type: "string",
+          enum: ["Buy", "Sell", "Wait", "No clear setup"],
+        },
+
+        // Only provide price levels when the chart supports them.
+        entry: { type: "string" },
+        stopLoss: { type: "string" },
+        initialTakeProfit: { type: "string" },
+        finalTakeProfit: { type: "string" },
+
+        // Use "Not available" if the ratio cannot be justified.
+        riskRewardRatio: { type: "string" },
+
+        // Describe the strength of the visible evidence.
+        strength: {
+          type: "string",
+          enum: ["Strong", "Moderate", "Weak", "Unclear"],
+        },
+
+        // Do not invent a duration if the chart cannot support one.
+        estimatedDuration: { type: "string" },
+      },
+      required: [
+        "trend",
+        "structure",
+        "keyObservation",
+        "tradeIdea",
+        "entry",
+        "stopLoss",
+        "initialTakeProfit",
+        "finalTakeProfit",
+        "riskRewardRatio",
+        "strength",
+        "estimatedDuration",
+      ],
     },
-
-    // Only provide price levels when the chart supports them.
-    entry: { type: "string" },
-    stopLoss: { type: "string" },
-    initialTakeProfit: { type: "string" },
-    finalTakeProfit: { type: "string" },
-
-    // Use "Not available" if the ratio cannot be justified.
-    riskRewardRatio: { type: "string" },
-
-    // Describe the strength of the visible evidence.
-    strength: {
-      type: "string",
-      enum: ["Strong", "Moderate", "Weak", "Unclear"],
-    },
-
-    // Do not invent a duration if the chart cannot support one.
-    estimatedDuration: { type: "string" },
-  },
-  required: [
-    "trend",
-    "structure",
-    "keyObservation",
-    "tradeIdea",
-    "entry",
-    "stopLoss",
-    "initialTakeProfit",
-    "finalTakeProfit",
-    "riskRewardRatio",
-    "strength",
-    "estimatedDuration",
-  ],
-},
     trendAndStructure: { type: "string" },
     priceZones: {
       type: "array",
@@ -125,7 +155,7 @@ snapshot: {
 };
 
 // ---------------------------------------------------------------------------
-// VERIFICATION PASS (new)
+// VERIFICATION PASS
 // Second, cheaper Gemini call that audits the trade plan for internal
 // consistency: direction logic, numeric levels, recomputed R:R, and
 // coherence between the strength label and the visible evidence.
@@ -194,11 +224,6 @@ async function verifyTradePlan(analysis: {
 }) {
   const { snapshot, patternsAndObservations, limitations } = analysis;
 
-  const hasLevels =
-    snapshot.entry !== "Not available" &&
-    snapshot.stopLoss !== "Not available" &&
-    snapshot.initialTakeProfit !== "Not available";
-
   const prompt = `
 You are a strict auditing layer that double-checks an AI-generated
 trade plan for internal consistency. You receive the plan as JSON.
@@ -253,17 +278,20 @@ OUTPUT RULES
 - Be conservative: when unsure, mark the check as failed and explain.
 `;
 
-  const response = await ai.interactions.create({
-    model: "gemini-3.8-flash",
-    input: [{ type: "text", text: prompt }],
-    response_format: {
-      type: "text",
-      mime_type: "application/json",
-      schema: verificationSchema,
-    },
-  });
+  const response = await withTimeout(
+    ai.models.generateContent({
+      model: "gemini-3.8-flash",
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: verificationSchema,
+      },
+    }),
+    20_000,
+    "Verification call"
+  );
 
-  const output = response.output_text;
+  const output = response.text;
 
   if (!output) return null;
 
@@ -470,28 +498,39 @@ Do not return Markdown, code fences, or additional commentary.
 `;
 
     // Ask Gemini for structured JSON rather than a Markdown essay.
-    const response = await ai.interactions.create({
-      model: "gemini-3.8-flash",
-      input: [
-        {
-          type: "text",
-          text: prompt,
+    console.log("[analyze] starting analysis call");
+    const startedAt = Date.now();
+
+    const response = await withTimeout(
+      ai.models.generateContent({
+        model: "gemini-3.8-flash",
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { text: prompt },
+              {
+                inlineData: {
+                  data: base64Image,
+                  mimeType: image.type,
+                },
+              },
+            ],
+          },
+        ],
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: analysisSchema,
         },
-        {
-          type: "image",
-          data: base64Image,
-          mime_type: image.type,
-        },
-      ],
-      response_format: {
-        type: "text",
-        mime_type: "application/json",
-        schema: analysisSchema,
-      },
-    });
+      }),
+      45_000,
+      "Analysis call"
+    );
+
+    console.log(`[analyze] analysis finished in ${Date.now() - startedAt}ms`);
 
     // Read the AI-generated JSON text.
-    const output = response.output_text;
+    const output = response.text;
 
     if (!output) {
       return NextResponse.json(
@@ -515,44 +554,54 @@ Do not return Markdown, code fences, or additional commentary.
     }
 
     // Confirm that all essential report sections and dashboard card
-// fields exist before sending the analysis to the frontend.
-if (
-  !analysis.chartIdentity ||
-  !analysis.snapshot ||
-  typeof analysis.snapshot.trend !== "string" ||
-  typeof analysis.snapshot.structure !== "string" ||
-  typeof analysis.snapshot.keyObservation !== "string" ||
-  typeof analysis.snapshot.tradeIdea !== "string" ||
-  typeof analysis.snapshot.entry !== "string" ||
-  typeof analysis.snapshot.stopLoss !== "string" ||
-  typeof analysis.snapshot.initialTakeProfit !== "string" ||
-  typeof analysis.snapshot.finalTakeProfit !== "string" ||
-  typeof analysis.snapshot.riskRewardRatio !== "string" ||
-  typeof analysis.snapshot.strength !== "string" ||
-  typeof analysis.snapshot.estimatedDuration !== "string" ||
-  typeof analysis.trendAndStructure !== "string" ||
-  !Array.isArray(analysis.priceZones) ||
-  !Array.isArray(analysis.patternsAndObservations) ||
-  !Array.isArray(analysis.limitations)
-) {
-  console.error("Gemini returned an incomplete analysis.");
+    // fields exist before sending the analysis to the frontend.
+    if (
+      !analysis.chartIdentity ||
+      !analysis.snapshot ||
+      typeof analysis.snapshot.trend !== "string" ||
+      typeof analysis.snapshot.structure !== "string" ||
+      typeof analysis.snapshot.keyObservation !== "string" ||
+      typeof analysis.snapshot.tradeIdea !== "string" ||
+      typeof analysis.snapshot.entry !== "string" ||
+      typeof analysis.snapshot.stopLoss !== "string" ||
+      typeof analysis.snapshot.initialTakeProfit !== "string" ||
+      typeof analysis.snapshot.finalTakeProfit !== "string" ||
+      typeof analysis.snapshot.riskRewardRatio !== "string" ||
+      typeof analysis.snapshot.strength !== "string" ||
+      typeof analysis.snapshot.estimatedDuration !== "string" ||
+      typeof analysis.trendAndStructure !== "string" ||
+      !Array.isArray(analysis.priceZones) ||
+      !Array.isArray(analysis.patternsAndObservations) ||
+      !Array.isArray(analysis.limitations)
+    ) {
+      console.error("Gemini returned an incomplete analysis.");
 
-  return NextResponse.json(
-    {
-      error: "The AI returned an incomplete report. Please try again.",
-    },
-    { status: 502 }
-  );
-}
+      return NextResponse.json(
+        {
+          error: "The AI returned an incomplete report. Please try again.",
+        },
+        { status: 502 }
+      );
+    }
 
     // Run the verification pass. This is advisory: if the audit call
-    // fails or returns nothing, we still deliver the analysis.
+    // fails, times out, or returns nothing, we still deliver the
+    // analysis with verification: null.
+    console.log("[analyze] starting verification call");
+    const verifyStartedAt = Date.now();
+
     let verification = null;
 
     try {
       verification = await verifyTradePlan(analysis);
+      console.log(
+        `[analyze] verification finished in ${Date.now() - verifyStartedAt}ms`
+      );
     } catch (error) {
-      console.error("Verification pass failed:", error);
+      console.error(
+        `[analyze] verification failed after ${Date.now() - verifyStartedAt}ms:`,
+        error
+      );
     }
 
     // Return structured analysis for the frontend to display.
