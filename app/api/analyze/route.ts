@@ -41,28 +41,28 @@ snapshot: {
     trend: { type: "string" },
     structure: { type: "string" },
     keyObservation: { type: "string" },
-    
+
     // A cautious scenario, not a guaranteed market prediction.
     tradeIdea: {
       type: "string",
       enum: ["Buy", "Sell", "Wait", "No clear setup"],
     },
-    
+
     // Only provide price levels when the chart supports them.
     entry: { type: "string" },
     stopLoss: { type: "string" },
     initialTakeProfit: { type: "string" },
     finalTakeProfit: { type: "string" },
-    
+
     // Use "Not available" if the ratio cannot be justified.
     riskRewardRatio: { type: "string" },
-    
+
     // Describe the strength of the visible evidence.
     strength: {
       type: "string",
       enum: ["Strong", "Moderate", "Weak", "Unclear"],
     },
-    
+
     // Do not invent a duration if the chart cannot support one.
     estimatedDuration: { type: "string" },
   },
@@ -123,6 +123,163 @@ snapshot: {
     "limitations",
   ],
 };
+
+// ---------------------------------------------------------------------------
+// VERIFICATION PASS (new)
+// Second, cheaper Gemini call that audits the trade plan for internal
+// consistency: direction logic, numeric levels, recomputed R:R, and
+// coherence between the strength label and the visible evidence.
+// ---------------------------------------------------------------------------
+
+const verificationSchema = {
+  type: "object",
+  properties: {
+    verdict: {
+      type: "string",
+      enum: ["verified", "issues_found"],
+    },
+    checks: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          check: { type: "string" },
+          passed: { type: "boolean" },
+          detail: { type: "string" },
+        },
+        required: ["check", "passed", "detail"],
+      },
+    },
+    issues: {
+      type: "array",
+      items: { type: "string" },
+    },
+    // Numeric corrections when issues can be fixed arithmetically.
+    // null when nothing can be safely corrected.
+    correctedLevels: {
+      type: ["object", "null"],
+      properties: {
+        entry: { type: "string" },
+        stopLoss: { type: "string" },
+        initialTakeProfit: { type: "string" },
+        finalTakeProfit: { type: "string" },
+        riskRewardRatio: { type: "string" },
+      },
+      required: [
+        "entry",
+        "stopLoss",
+        "initialTakeProfit",
+        "finalTakeProfit",
+        "riskRewardRatio",
+      ],
+    },
+  },
+  required: ["verdict", "checks", "issues", "correctedLevels"],
+};
+
+type Snapshot = {
+  tradeIdea: string;
+  entry: string;
+  stopLoss: string;
+  initialTakeProfit: string;
+  finalTakeProfit: string;
+  riskRewardRatio: string;
+  strength: string;
+};
+
+async function verifyTradePlan(analysis: {
+  snapshot: Snapshot;
+  patternsAndObservations: Array<unknown>;
+  limitations: Array<unknown>;
+}) {
+  const { snapshot, patternsAndObservations, limitations } = analysis;
+
+  const hasLevels =
+    snapshot.entry !== "Not available" &&
+    snapshot.stopLoss !== "Not available" &&
+    snapshot.initialTakeProfit !== "Not available";
+
+  const prompt = `
+You are a strict auditing layer that double-checks an AI-generated
+trade plan for internal consistency. You receive the plan as JSON.
+You do NOT see the chart. You check only arithmetic and logic.
+
+TRADE PLAN
+${JSON.stringify(snapshot, null, 2)}
+
+EVIDENCE COUNTS
+Observations listed: ${patternsAndObservations.length}
+Limitations listed: ${limitations.length}
+
+RUN THESE CHECKS
+
+1. DIRECTION LOGIC (only when all of entry, stopLoss, initialTakeProfit
+   are real numbers, not "Not available")
+   - Buy: stopLoss must be strictly below entry, targets above entry.
+   - Sell: stopLoss must be strictly above entry, targets below entry.
+   - Anything else is a fail.
+
+2. NUMBER PARSING
+   - entry, stopLoss, initialTakeProfit must each parse to a number
+     (strip commas, currency symbols, and unit labels first).
+   - If any required level is "Not available", mark the numeric checks
+     as "not applicable" and do not fail the plan for missing levels.
+
+3. RISK/REWARD RE-COMPUTATION (only when check 1 and 2 pass)
+   - risk = |entry - stopLoss|
+   - reward = |initialTakeProfit - entry|
+   - expected = reward / risk, rounded to one decimal.
+   - Compare with the plan's stated riskRewardRatio.
+   - Fail if they differ by more than 0.3.
+
+4. STOP DISTANCE SANITY (only when check 2 passes)
+   - Compare |entry - stopLoss| to the magnitude of the entry price.
+   - Flag if the stop is implausibly tight (under 0.05% of entry) or
+     implausibly wide (over 10% of entry).
+
+5. STRENGTH COHERENCE
+   - "Strong" with many limitations or zero observations is suspect.
+   - "Weak"/"Unclear" with a full set of precise levels is suspect.
+
+OUTPUT RULES
+- verdict "verified" only if every applicable check passes.
+- List every failed or suspicious item in issues, one short sentence
+  each.
+- If a numeric issue can be fixed arithmetically (wrong R:R, inverted
+  stop), provide correctedLevels with the recomputed values as plain
+  numbers. Otherwise correctedLevels must be null.
+- Never invent new entry/stop/target prices that are not simple
+  arithmetic on the existing values.
+- Be conservative: when unsure, mark the check as failed and explain.
+`;
+
+  const response = await ai.interactions.create({
+    model: "gemini-3.8-flash",
+    input: [{ type: "text", text: prompt }],
+    response_format: {
+      type: "text",
+      mime_type: "application/json",
+      schema: verificationSchema,
+    },
+  });
+
+  const output = response.output_text;
+
+  if (!output) return null;
+
+  try {
+    return JSON.parse(output) as {
+      verdict: "verified" | "issues_found";
+      checks: Array<{ check: string; passed: boolean; detail: string }>;
+      issues: string[];
+      correctedLevels: Snapshot | null;
+    };
+  } catch {
+    // Verification is advisory: a malformed audit should not block
+    // the analysis from reaching the user.
+    return null;
+  }
+}
 
 // Normalize a value received from the form.
 function getFormValue(value: FormDataEntryValue | null) {
@@ -388,10 +545,21 @@ if (
   );
 }
 
+    // Run the verification pass. This is advisory: if the audit call
+    // fails or returns nothing, we still deliver the analysis.
+    let verification = null;
+
+    try {
+      verification = await verifyTradePlan(analysis);
+    } catch (error) {
+      console.error("Verification pass failed:", error);
+    }
+
     // Return structured analysis for the frontend to display.
     return NextResponse.json({
       success: true,
       analysis,
+      verification,
     });
   } catch (error) {
     // Keep technical details in server logs, not in the UI.
